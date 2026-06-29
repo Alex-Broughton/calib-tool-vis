@@ -43,12 +43,13 @@ def _matching_data_ids(
     where: str,
 ) -> set[tuple[tuple[str, Any], ...]]:
     """Return a set of dataId key tuples that satisfy the where expression."""
-    data_ids = butler.query_data_ids(
+    refs = butler.query_datasets(
         dataset_type_name,
         collections=collections,
         where=where,
+        find_first=False,
     )
-    return {tuple(sorted(data_id.items())) for data_id in data_ids}
+    return {_data_id_key(ref.dataId) for ref in refs}
 
 
 def _data_id_key(data_id) -> tuple[tuple[str, Any], ...]:
