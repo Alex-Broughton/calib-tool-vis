@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calibration Timeline</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero-text">
+        <p class="eyebrow">LSST Butler</p>
+        <h1>Calibration Timeline</h1>
+        <p class="subtitle">
+          Browse calibration datasets and their validity ranges across a Butler collection.
+        </p>
+      </div>
+    </header>
+
+    <section class="panel query-panel">
+      <form id="query-form" class="query-form">
+        <div class="field">
+          <label for="repo">Repository</label>
+          <input id="repo" name="repo" type="text"
+                 value="/sdf/group/rubin/repo/main/" required>
+        </div>
+        <div class="field">
+          <label for="collection">Collection</label>
+          <input id="collection" name="collection" type="text"
+                 value="LSSTCam/calib" required>
+        </div>
+        <div class="field">
+          <label for="dataset_type">Dataset type</label>
+          <input id="dataset_type" name="dataset_type" type="text"
+                 placeholder="e.g. electroBfDistortionMatrix">
+        </div>
+        <div class="field field-wide">
+          <label for="where">Where <span class="optional">(optional)</span></label>
+          <input id="where" name="where" type="text"
+                 placeholder='e.g. detector=204'>
+        </div>
+        <div class="field field-action">
+          <button type="submit" id="submit-btn">Query</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="status" class="status hidden" aria-live="polite"></section>
+
+    <section id="summary" class="summary hidden"></section>
+
+    <section id="timeline-section" class="panel timeline-panel hidden">
+      <div class="timeline-header">
+        <h2>Validity timeline</h2>
+        <div id="legend" class="legend"></div>
+      </div>
+      <div id="timeline" class="timeline"></div>
+    </section>
+
+    <section id="table-section" class="panel table-panel hidden">
+      <h2>Dataset details</h2>
+      <div class="table-wrap">
+        <table id="details-table">
+          <thead>
+            <tr>
+              <th>Dataset type</th>
+              <th>Run</th>
+              <th>Collection</th>
+              <th>Dimensions</th>
+              <th>Validity</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
