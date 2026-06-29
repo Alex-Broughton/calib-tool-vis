@@ -39,33 +39,35 @@
                  value="LSSTCam/calib" required>
         </div>
         <div class="field">
-          <label for="dataset_type">Dataset type</label>
+          <label for="dataset_type">Dataset Type</label>
           <input id="dataset_type" name="dataset_type" type="text"
                  placeholder="e.g. electroBfDistortionMatrix">
         </div>
-        <div class="field">
-          <label for="where">Where <span class="optional">(optional)</span></label>
-          <input id="where" name="where" type="text"
-                 placeholder="instrument = 'LSSTCam' AND detector = 204">
+        <div class="field field-where">
+          <label for="where">Where <span class="optional">(Optional)</span></label>
+          <textarea id="where" name="where" rows="3" spellcheck="false"
+                    placeholder="instrument = 'LSSTCam' AND detector = 204"></textarea>
         </div>
-        <div class="field field-range">
-          <label>Timeline from <span class="optional">(UTC)</span></label>
-          <div class="date-dropdowns">
-            <select id="range_start_day" name="range_start_day" aria-label="Start day"></select>
-            <select id="range_start_month" name="range_start_month" aria-label="Start month"></select>
-            <select id="range_start_year" name="range_start_year" aria-label="Start year"></select>
-          </div>
-        </div>
-        <div class="field field-range">
-          <label>Timeline to <span class="optional">(UTC)</span></label>
-          <div class="date-dropdowns">
-            <select id="range_end_day" name="range_end_day" aria-label="End day"></select>
-            <select id="range_end_month" name="range_end_month" aria-label="End month"></select>
-            <select id="range_end_year" name="range_end_year" aria-label="End year"></select>
-          </div>
-        </div>
-        <div class="field field-action field-action-full">
+        <div class="field field-action field-query">
           <button type="submit" id="submit-btn">Query</button>
+        </div>
+        <div class="query-time-range">
+          <div class="field field-range">
+            <label>Time Begin (UTC)</label>
+            <div class="date-dropdowns">
+              <select id="range_start_day" name="range_start_day" aria-label="Start day"></select>
+              <select id="range_start_month" name="range_start_month" aria-label="Start month"></select>
+              <select id="range_start_year" name="range_start_year" aria-label="Start year"></select>
+            </div>
+          </div>
+          <div class="field field-range">
+            <label>Time End (UTC)</label>
+            <div class="date-dropdowns">
+              <select id="range_end_day" name="range_end_day" aria-label="End day"></select>
+              <select id="range_end_month" name="range_end_month" aria-label="End month"></select>
+              <select id="range_end_year" name="range_end_year" aria-label="End year"></select>
+            </div>
+          </div>
         </div>
       </form>
     </section>
