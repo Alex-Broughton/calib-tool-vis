@@ -159,19 +159,22 @@ function initTimelineControls() {
     zoomViewport(factor, cursorToTime(event, timelineEl));
   }, { passive: false });
 
-  timelineEl.addEventListener("mousedown", (event) => {
+  timelineEl.addEventListener("pointerdown", (event) => {
     if (!timelineRecords.length || event.button !== 0) {
       return;
     }
     timelinePanState = {
+      pointerId: event.pointerId,
       startX: event.clientX,
       scrollLeft: timelineEl.scrollLeft,
     };
     timelineEl.classList.add("is-panning");
+    timelineEl.setPointerCapture(event.pointerId);
+    event.preventDefault();
   });
 
-  window.addEventListener("mousemove", (event) => {
-    if (!timelinePanState) {
+  timelineEl.addEventListener("pointermove", (event) => {
+    if (!timelinePanState || event.pointerId !== timelinePanState.pointerId) {
       return;
     }
     event.preventDefault();
@@ -179,13 +182,19 @@ function initTimelineControls() {
     timelineEl.scrollLeft = timelinePanState.scrollLeft - delta;
   });
 
-  window.addEventListener("mouseup", () => {
-    if (!timelinePanState) {
+  const endTimelinePan = (event) => {
+    if (!timelinePanState || event.pointerId !== timelinePanState.pointerId) {
       return;
     }
     timelinePanState = null;
     timelineEl.classList.remove("is-panning");
-  });
+    if (timelineEl.hasPointerCapture(event.pointerId)) {
+      timelineEl.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  timelineEl.addEventListener("pointerup", endTimelinePan);
+  timelineEl.addEventListener("pointercancel", endTimelinePan);
 }
 
 function viewportCenterTime() {
