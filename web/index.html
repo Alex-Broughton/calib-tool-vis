@@ -90,6 +90,15 @@
         <span class="grid-legend-item"><span style="color:#7dd3fc">●</span> UTC</span>
         <span class="grid-legend-item"><span style="color:#86efac">●</span> Chile (America/Santiago)</span>
       </div>
+      <div class="timeline-controls">
+        <button type="button" id="zoom-out-btn" class="secondary" title="Zoom out">−</button>
+        <input type="range" id="zoom-slider" min="0" max="100" value="0" aria-label="Timeline zoom">
+        <button type="button" id="zoom-in-btn" class="secondary" title="Zoom in">+</button>
+        <button type="button" id="zoom-reset-btn" class="secondary">Reset view</button>
+        <button type="button" id="zoom-fit-btn" class="secondary">Fit data</button>
+        <span id="zoom-range-label" class="zoom-range-label"></span>
+      </div>
+      <p class="timeline-hint">Scroll horizontally · wheel to zoom · shift+wheel to pan</p>
       <div id="timeline" class="timeline"></div>
     </section>
 

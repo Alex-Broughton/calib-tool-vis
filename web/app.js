@@ -44,8 +44,22 @@ const API_URL = resolveApiUrl();
 const DATA_URL = new URL("data/latest.json", window.location.href).href;
 
 const TIMELINE_START = Date.UTC(2024, 3, 14, 0, 0, 0, 0);
-const PX_PER_DAY = 7;
+const BASE_PX_PER_DAY = 7;
+const MIN_VIEW_MS = 30 * 60 * 1000;
 const CHILE_TZ = "America/Santiago";
+
+let timelineRecords = [];
+const timelineView = {
+  start: null,
+  end: null,
+};
+
+const zoomOutBtn = document.getElementById("zoom-out-btn");
+const zoomInBtn = document.getElementById("zoom-in-btn");
+const zoomResetBtn = document.getElementById("zoom-reset-btn");
+const zoomFitBtn = document.getElementById("zoom-fit-btn");
+const zoomSlider = document.getElementById("zoom-slider");
+const zoomRangeLabel = document.getElementById("zoom-range-label");
 
 const PALETTE = [
   "#38bdf8", "#34d399", "#a78bfa", "#fb7185",
@@ -126,6 +140,29 @@ uploadInput.addEventListener("change", async (event) => {
 });
 
 initHostingNote();
+initTimelineControls();
+
+function initTimelineControls() {
+  zoomOutBtn?.addEventListener("click", () => zoomViewport(1 / 1.25));
+  zoomInBtn?.addEventListener("click", () => zoomViewport(1.25));
+  zoomResetBtn?.addEventListener("click", () => resetTimelineView());
+  zoomFitBtn?.addEventListener("click", () => fitTimelineToData());
+  zoomSlider?.addEventListener("input", () => applyZoomSlider(Number(zoomSlider.value)));
+
+  timelineEl.addEventListener("wheel", (event) => {
+    if (!timelineRecords.length) {
+      return;
+    }
+    event.preventDefault();
+    if (event.shiftKey) {
+      panViewport(event.deltaY > 0 ? 1 : -1, 0.08);
+      return;
+    }
+    const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const anchorMs = cursorToTime(event, timelineEl);
+    zoomViewport(factor, anchorMs);
+  }, { passive: false });
+}
 
 function initHostingNote() {
   if (MODE === "static") {
@@ -176,11 +213,174 @@ function parseDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function getTimelineBounds() {
+function getFullBounds() {
   const min = new Date(TIMELINE_START);
   const max = new Date();
   max.setUTCHours(23, 59, 59, 999);
   return { min, max };
+}
+
+function initTimelineView(bounds = getFullBounds()) {
+  timelineView.start = new Date(bounds.min);
+  timelineView.end = new Date(bounds.max);
+}
+
+function getViewBounds() {
+  if (!timelineView.start || !timelineView.end) {
+    initTimelineView();
+  }
+  return { min: timelineView.start, max: timelineView.end };
+}
+
+function getFullSpanMs() {
+  const full = getFullBounds();
+  return full.max - full.min;
+}
+
+function getViewSpanMs() {
+  const view = getViewBounds();
+  return view.max - view.min;
+}
+
+function clampTimelineView() {
+  const full = getFullBounds();
+  let span = timelineView.end.getTime() - timelineView.start.getTime();
+  if (span < MIN_VIEW_MS) {
+    const center = (timelineView.start.getTime() + timelineView.end.getTime()) / 2;
+    timelineView.start = new Date(center - MIN_VIEW_MS / 2);
+    timelineView.end = new Date(center + MIN_VIEW_MS / 2);
+    span = MIN_VIEW_MS;
+  }
+  if (timelineView.start < full.min) {
+    timelineView.start = new Date(full.min);
+    timelineView.end = new Date(full.min.getTime() + span);
+  }
+  if (timelineView.end > full.max) {
+    timelineView.end = new Date(full.max);
+    timelineView.start = new Date(full.max.getTime() - span);
+  }
+  if (timelineView.start < full.min) {
+    timelineView.start = new Date(full.min);
+  }
+}
+
+function zoomSliderToSpan(sliderValue) {
+  const fullSpan = getFullSpanMs();
+  const ratio = sliderValue / 100;
+  return fullSpan * Math.pow(MIN_VIEW_MS / fullSpan, ratio);
+}
+
+function spanToZoomSlider(spanMs) {
+  const fullSpan = getFullSpanMs();
+  if (spanMs >= fullSpan) {
+    return 0;
+  }
+  const ratio = Math.log(spanMs / fullSpan) / Math.log(MIN_VIEW_MS / fullSpan);
+  return Math.min(100, Math.max(0, Math.round(ratio * 100)));
+}
+
+function applyZoomSlider(value) {
+  const full = getFullBounds();
+  const span = zoomSliderToSpan(value);
+  const center = (timelineView.start.getTime() + timelineView.end.getTime()) / 2;
+  timelineView.start = new Date(center - span / 2);
+  timelineView.end = new Date(center + span / 2);
+  clampTimelineView();
+  refreshTimeline();
+}
+
+function zoomViewport(factor, anchorMs = null) {
+  const view = getViewBounds();
+  const span = view.max.getTime() - view.min.getTime();
+  const newSpan = Math.min(getFullSpanMs(), Math.max(MIN_VIEW_MS, span / factor));
+  const anchor = anchorMs ?? (view.min.getTime() + span / 2);
+  const anchorRatio = (anchor - view.min.getTime()) / span;
+  timelineView.start = new Date(anchor - newSpan * anchorRatio);
+  timelineView.end = new Date(anchor + newSpan * (1 - anchorRatio));
+  clampTimelineView();
+  if (zoomSlider) {
+    zoomSlider.value = String(spanToZoomSlider(newSpan));
+  }
+  refreshTimeline();
+}
+
+function panViewport(direction, fraction = 0.1) {
+  const view = getViewBounds();
+  const span = view.max.getTime() - view.min.getTime();
+  const delta = span * fraction * direction;
+  timelineView.start = new Date(view.min.getTime() + delta);
+  timelineView.end = new Date(view.max.getTime() + delta);
+  clampTimelineView();
+  refreshTimeline();
+}
+
+function resetTimelineView() {
+  initTimelineView();
+  if (zoomSlider) {
+    zoomSlider.value = "0";
+  }
+  refreshTimeline();
+}
+
+function fitTimelineToData() {
+  if (!timelineRecords.length) {
+    return;
+  }
+  let min = null;
+  let max = null;
+  for (const record of timelineRecords) {
+    const start = parseDate(record.validity_start);
+    const end = parseDate(record.validity_end);
+    if (start) {
+      min = min === null ? start : (start < min ? start : min);
+    }
+    if (end) {
+      max = max === null ? end : (end > max ? end : max);
+    }
+  }
+  if (!min) {
+    resetTimelineView();
+    return;
+  }
+  const pad = Math.max((max ?? min).getTime() - min.getTime(), msPerDay()) * 0.08;
+  timelineView.start = new Date(min.getTime() - pad);
+  timelineView.end = new Date((max ?? getFullBounds().max).getTime() + pad);
+  clampTimelineView();
+  if (zoomSlider) {
+    zoomSlider.value = String(spanToZoomSlider(getViewSpanMs()));
+  }
+  refreshTimeline();
+}
+
+function cursorToTime(event, scrollEl) {
+  const view = getViewBounds();
+  const widthPx = computeTimelineWidth(view);
+  const rect = scrollEl.getBoundingClientRect();
+  const cursorX = event.clientX - rect.left + scrollEl.scrollLeft - getLabelWidth();
+  const ratio = Math.min(1, Math.max(0, cursorX / widthPx));
+  return view.min.getTime() + ratio * (view.max - view.min);
+}
+
+function getLabelWidth() {
+  return parseInt(getComputedStyle(document.documentElement).getPropertyValue("--label-width"), 10) || 280;
+}
+
+function refreshTimeline() {
+  if (timelineRecords.length) {
+    renderTimeline(timelineRecords);
+  }
+}
+
+function updateZoomRangeLabel(viewBounds) {
+  if (!zoomRangeLabel) {
+    return;
+  }
+  const spanMs = viewBounds.max - viewBounds.min;
+  const scale = resolveTimeScale(spanMs);
+  const startLabel = formatAxisTick(viewBounds.min, "utc", scale);
+  const endLabel = formatAxisTick(viewBounds.max, "utc", scale);
+  const zoomPct = Math.round((getFullSpanMs() / spanMs) * 10) / 10;
+  zoomRangeLabel.textContent = `${startLabel} → ${endLabel} · ${zoomPct}× zoom`;
 }
 
 function msPerDay() {
@@ -188,8 +388,11 @@ function msPerDay() {
 }
 
 function computeTimelineWidth(bounds) {
-  const days = Math.ceil((bounds.max - bounds.min) / msPerDay()) + 1;
-  return Math.max(days * PX_PER_DAY, 720);
+  const full = getFullBounds();
+  const spanMs = bounds.max - bounds.min;
+  const zoomRatio = (full.max - full.min) / spanMs;
+  const pxPerDay = BASE_PX_PER_DAY * zoomRatio;
+  return Math.max((spanMs / msPerDay()) * pxPerDay, 720);
 }
 
 function dateToPx(date, bounds, widthPx) {
@@ -227,6 +430,94 @@ function colorForCollection(collection, colorMap) {
     colorMap.set(collection, PALETTE[colorMap.size % PALETTE.length]);
   }
   return colorMap.get(collection);
+}
+
+function resolveTimeScale(spanMs) {
+  if (spanMs > 400 * msPerDay()) {
+    return { year: true, month: true, day: true };
+  }
+  if (spanMs > 90 * msPerDay()) {
+    return { month: true, day: true };
+  }
+  if (spanMs > 14 * msPerDay()) {
+    return { day: true, sixHour: true };
+  }
+  if (spanMs > 2 * msPerDay()) {
+    return { day: true, hour: true };
+  }
+  if (spanMs > 6 * 3600000) {
+    return { hour: true, sixHour: true };
+  }
+  if (spanMs > 2 * 3600000) {
+    return { hour: true, quarterHour: true };
+  }
+  return { hour: true, minute: true, quarterHour: true };
+}
+
+function eachInterval(bounds, stepMs, alignUtc = true) {
+  const items = [];
+  let t = bounds.min.getTime();
+  if (alignUtc && stepMs >= 3600000) {
+    const d = new Date(t);
+    d.setUTCMinutes(0, 0, 0);
+    if (stepMs >= msPerDay()) {
+      d.setUTCHours(0);
+    }
+    t = d.getTime();
+    if (t < bounds.min.getTime()) {
+      t += stepMs;
+    }
+  } else {
+    t = Math.ceil(t / stepMs) * stepMs;
+  }
+  while (t <= bounds.max.getTime()) {
+    items.push(new Date(t));
+    t += stepMs;
+  }
+  return items;
+}
+
+function formatAxisTick(date, zone, scale) {
+  const tz = zone === "utc" ? "UTC" : CHILE_TZ;
+  if (scale.minute || scale.quarterHour) {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+  if (scale.hour || scale.sixHour) {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+  if (scale.day) {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).format(date);
+  }
+  if (scale.month) {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      month: "short",
+      year: "numeric",
+    }).format(date);
+  }
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    year: "numeric",
+  }).format(date);
 }
 
 function startOfUtcDay(date) {
@@ -271,64 +562,96 @@ function eachUtcYearStart(bounds) {
   return years;
 }
 
+function addGridLine(grid, bounds, widthPx, date, className, title = null) {
+  const line = document.createElement("div");
+  line.className = `grid-line ${className}`;
+  line.style.left = `${dateToPx(date, bounds, widthPx)}px`;
+  if (title) {
+    line.title = title;
+  }
+  grid.appendChild(line);
+}
+
 function createGridLayer(bounds, widthPx) {
   const grid = document.createElement("div");
   grid.className = "timeline-grid";
   grid.style.width = `${widthPx}px`;
+  const spanMs = bounds.max - bounds.min;
+  const scale = resolveTimeScale(spanMs);
 
-  for (const day of eachUtcDay(bounds)) {
-    const line = document.createElement("div");
-    line.className = "grid-line grid-line-day";
-    line.style.left = `${dateToPx(day, bounds, widthPx)}px`;
-    grid.appendChild(line);
+  if (scale.minute) {
+    for (const tick of eachInterval(bounds, 15 * 60 * 1000)) {
+      addGridLine(grid, bounds, widthPx, tick, "grid-line-minute");
+    }
+  }
+  if (scale.quarterHour && !scale.minute) {
+    for (const tick of eachInterval(bounds, 15 * 60 * 1000)) {
+      addGridLine(grid, bounds, widthPx, tick, "grid-line-quarter-hour");
+    }
+  }
+  if (scale.hour) {
+    for (const tick of eachInterval(bounds, 3600000)) {
+      addGridLine(grid, bounds, widthPx, tick, "grid-line-hour", formatDualTime(tick));
+    }
+  }
+  if (scale.sixHour) {
+    for (const tick of eachInterval(bounds, 6 * 3600000)) {
+      addGridLine(grid, bounds, widthPx, tick, "grid-line-six-hour", formatDualTime(tick));
+    }
+  }
+  if (scale.day) {
+    for (const day of eachUtcDay(bounds)) {
+      addGridLine(grid, bounds, widthPx, day, "grid-line-day", formatDualTime(day));
+    }
+  }
+  if (scale.month) {
+    for (const month of eachUtcMonthStart(bounds)) {
+      addGridLine(grid, bounds, widthPx, month, "grid-line-month", formatDualTime(month));
+    }
+  }
+  if (scale.year) {
+    for (const year of eachUtcYearStart(bounds)) {
+      addGridLine(grid, bounds, widthPx, year, "grid-line-year", formatDualTime(year));
+    }
   }
 
-  for (const month of eachUtcMonthStart(bounds)) {
-    const line = document.createElement("div");
-    line.className = "grid-line grid-line-month";
-    line.style.left = `${dateToPx(month, bounds, widthPx)}px`;
-    grid.appendChild(line);
+  const full = getFullBounds();
+  if (bounds.max.getTime() >= full.max.getTime() - msPerDay()) {
+    addGridLine(grid, bounds, widthPx, full.max, "grid-line-today", `Today\n${formatDualTime(full.max)}`);
   }
-
-  for (const year of eachUtcYearStart(bounds)) {
-    const line = document.createElement("div");
-    line.className = "grid-line grid-line-year";
-    line.style.left = `${dateToPx(year, bounds, widthPx)}px`;
-    line.title = formatDualTime(year);
-    grid.appendChild(line);
-  }
-
-  const todayLine = document.createElement("div");
-  todayLine.className = "grid-line grid-line-today";
-  todayLine.style.left = `${dateToPx(bounds.max, bounds, widthPx)}px`;
-  todayLine.title = `Today\n${formatDualTime(bounds.max)}`;
-  grid.appendChild(todayLine);
 
   return grid;
 }
 
-function createAxisLabel(date, bounds, widthPx, kind, zone) {
+function createAxisLabel(date, bounds, widthPx, kind, zone, scale) {
   const tick = document.createElement("div");
   tick.className = `axis-tick axis-tick-${kind} axis-tick-${zone}`;
   tick.style.left = `${dateToPx(date, bounds, widthPx)}px`;
-
-  if (zone === "utc") {
-    tick.textContent = kind === "year"
-      ? String(date.getUTCFullYear())
-      : utcMonthFmt.format(date);
-  } else {
-    tick.textContent = kind === "year"
-      ? new Intl.DateTimeFormat("en-GB", { timeZone: CHILE_TZ, year: "numeric" }).format(date)
-      : chileMonthFmt.format(date);
-  }
-
+  tick.textContent = formatAxisTick(date, zone, scale);
   tick.title = formatDualTime(date);
   return tick;
 }
 
+function subsampleTicks(dates, bounds, widthPx, minPx = 72) {
+  if (dates.length <= 1) {
+    return dates;
+  }
+  const maxTicks = Math.max(2, Math.floor(widthPx / minPx));
+  if (dates.length <= maxTicks) {
+    return dates;
+  }
+  const step = Math.ceil(dates.length / maxTicks);
+  return dates.filter((_, index) => index % step === 0);
+}
+
 function buildDualAxis(bounds, widthPx) {
+  const spanMs = bounds.max - bounds.min;
+  const scale = resolveTimeScale(spanMs);
   const axisBlock = document.createElement("div");
   axisBlock.className = "timeline-axis-block";
+  if (scale.hour || scale.minute) {
+    axisBlock.classList.add("timeline-axis-fine");
+  }
 
   const side = document.createElement("div");
   side.className = "axis-side";
@@ -343,31 +666,77 @@ function buildDualAxis(bounds, widthPx) {
   const chileRow = document.createElement("div");
   chileRow.className = "axis-row axis-row-chile";
 
-  utcRow.appendChild(createAxisLabel(bounds.min, bounds, widthPx, "month", "utc"));
-  chileRow.appendChild(createAxisLabel(bounds.min, bounds, widthPx, "month", "chile"));
+  const addTicks = (dates, kind) => {
+    for (const date of dates) {
+      utcRow.appendChild(createAxisLabel(date, bounds, widthPx, kind, "utc", scale));
+      chileRow.appendChild(createAxisLabel(date, bounds, widthPx, kind, "chile", scale));
+    }
+  };
 
-  for (const year of eachUtcYearStart(bounds)) {
-    utcRow.appendChild(createAxisLabel(year, bounds, widthPx, "year", "utc"));
-    chileRow.appendChild(createAxisLabel(year, bounds, widthPx, "year", "chile"));
+  utcRow.appendChild(createAxisLabel(bounds.min, bounds, widthPx, "edge", "utc", scale));
+  chileRow.appendChild(createAxisLabel(bounds.min, bounds, widthPx, "edge", "chile", scale));
+
+  if (scale.year) {
+    addTicks(eachUtcYearStart(bounds), "year");
+  }
+  if (scale.month) {
+    addTicks(eachUtcMonthStart(bounds), "month");
+  }
+  if (scale.day) {
+    addTicks(eachUtcDay(bounds), "day");
+  }
+  if (scale.sixHour) {
+    addTicks(subsampleTicks(eachInterval(bounds, 6 * 3600000), bounds, widthPx), "six-hour");
+  }
+  if (scale.hour) {
+    addTicks(subsampleTicks(eachInterval(bounds, 3600000), bounds, widthPx), "hour");
+  }
+  if (scale.quarterHour) {
+    addTicks(subsampleTicks(eachInterval(bounds, 15 * 60 * 1000), bounds, widthPx), "quarter-hour");
+  }
+  if (scale.minute) {
+    addTicks(subsampleTicks(eachInterval(bounds, 15 * 60 * 1000), bounds, widthPx, 48), "minute");
   }
 
-  for (const month of eachUtcMonthStart(bounds)) {
-    utcRow.appendChild(createAxisLabel(month, bounds, widthPx, "month", "utc"));
-    chileRow.appendChild(createAxisLabel(month, bounds, widthPx, "month", "chile"));
+  const full = getFullBounds();
+  if (bounds.max.getTime() >= full.max.getTime() - msPerDay()) {
+    const todayUtc = createAxisLabel(full.max, bounds, widthPx, "today", "utc", scale);
+    todayUtc.classList.add("axis-tick-today");
+    todayUtc.textContent = "Today";
+    const todayChile = createAxisLabel(full.max, bounds, widthPx, "today", "chile", scale);
+    todayChile.classList.add("axis-tick-today");
+    todayChile.textContent = "Today";
+    utcRow.appendChild(todayUtc);
+    chileRow.appendChild(todayChile);
   }
 
-  const todayUtc = createAxisLabel(bounds.max, bounds, widthPx, "month", "utc");
-  todayUtc.classList.add("axis-tick-today");
-  todayUtc.textContent = "Today";
-  const todayChile = createAxisLabel(bounds.max, bounds, widthPx, "month", "chile");
-  todayChile.classList.add("axis-tick-today");
-  todayChile.textContent = "Today";
-  utcRow.appendChild(todayUtc);
-  chileRow.appendChild(todayChile);
+  utcRow.appendChild(createAxisLabel(bounds.max, bounds, widthPx, "edge", "utc", scale));
+  chileRow.appendChild(createAxisLabel(bounds.max, bounds, widthPx, "edge", "chile", scale));
 
   trackWrap.append(utcRow, chileRow);
   axisBlock.append(side, trackWrap);
   return axisBlock;
+}
+
+function appendValidityMarker(track, date, bounds, widthPx, kind, scale) {
+  if (!date || !scale.hour) {
+    return;
+  }
+  const marker = document.createElement("div");
+  marker.className = `validity-marker validity-marker-${kind}`;
+  marker.style.left = `${dateToPx(date, bounds, widthPx)}px`;
+  marker.title = formatDualTime(date);
+
+  const label = document.createElement("span");
+  label.className = "validity-marker-label";
+  label.textContent = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+  marker.appendChild(label);
+  track.appendChild(marker);
 }
 
 function buildLegend(records, colorMap) {
@@ -425,15 +794,19 @@ function renderTimeline(records) {
   timelineEl.className = "timeline-scroll";
 
   const colorMap = new Map();
-  const bounds = getTimelineBounds();
+  const bounds = getViewBounds();
+  const spanMs = bounds.max - bounds.min;
+  const scale = resolveTimeScale(spanMs);
   const widthPx = computeTimelineWidth(bounds);
   const gridLayer = createGridLayer(bounds, widthPx);
 
   buildLegend(records, colorMap);
+  updateZoomRangeLabel(bounds);
 
   const inner = document.createElement("div");
   inner.className = "timeline-inner";
   inner.style.setProperty("--track-width", `${widthPx}px`);
+  inner.dataset.timelineWidth = String(widthPx);
 
   inner.appendChild(buildDualAxis(bounds, widthPx));
 
@@ -455,6 +828,8 @@ function renderTimeline(records) {
   const rowsContainer = document.createElement("div");
   rowsContainer.className = "timeline-rows";
 
+  const full = getFullBounds();
+
   for (const record of sorted) {
     const row = document.createElement("div");
     row.className = "timeline-row";
@@ -473,18 +848,22 @@ function renderTimeline(records) {
 
     const rawStart = parseDate(record.validity_start) ?? bounds.min;
     const openEnded = isOpenEnded(record);
-    const rawEnd = openEnded ? bounds.max : (parseDate(record.validity_end) ?? bounds.max);
-    const start = clipDate(rawStart, bounds);
-    const end = clipDate(rawEnd, bounds);
+    const rawEnd = openEnded ? full.max : (parseDate(record.validity_end) ?? full.max);
 
-    const left = dateToPx(start, bounds, widthPx);
-    const right = dateToPx(end, bounds, widthPx);
+    const visibleStart = clipDate(rawStart, bounds);
+    const visibleEnd = clipDate(rawEnd, bounds);
+    if (visibleEnd <= visibleStart) {
+      continue;
+    }
+
+    const left = dateToPx(visibleStart, bounds, widthPx);
+    const right = dateToPx(visibleEnd, bounds, widthPx);
     const width = Math.max(right - left, 3);
 
     const bar = document.createElement("div");
     bar.className = "timeline-bar";
     const barColor = colorForCollection(record.collection, colorMap);
-    if (openEnded) {
+    if (openEnded && rawEnd.getTime() >= bounds.max.getTime()) {
       bar.classList.add("timeline-bar-open");
     }
     bar.style.left = `${left}px`;
@@ -492,6 +871,13 @@ function renderTimeline(records) {
     bar.style.background = barColor;
     bar.style.setProperty("--bar-color", barColor);
     bar.title = buildBarTooltip(record);
+
+    if (rawStart >= bounds.min && rawStart <= bounds.max) {
+      appendValidityMarker(track, rawStart, bounds, widthPx, "start", scale);
+    }
+    if (!openEnded && rawEnd >= bounds.min && rawEnd <= bounds.max) {
+      appendValidityMarker(track, rawEnd, bounds, widthPx, "end", scale);
+    }
 
     track.appendChild(bar);
     trackWrap.appendChild(track);
@@ -522,13 +908,12 @@ function renderTable(records) {
 function renderSummary(records) {
   const collections = new Set(records.map((r) => r.collection));
   const types = new Set(records.map((r) => r.dataset_type));
-  const bounds = getTimelineBounds();
 
   summaryEl.innerHTML = `
     <div class="stat-chip"><strong>${records.length}</strong> calibration${records.length === 1 ? "" : "s"}</div>
     <div class="stat-chip"><strong>${collections.size}</strong> collection${collections.size === 1 ? "" : "s"}</div>
     <div class="stat-chip"><strong>${types.size}</strong> dataset type${types.size === 1 ? "" : "s"}</div>
-    <div class="stat-chip">Timeline: <strong>14 Apr 2024</strong> → <strong>today</strong></div>
+    <div class="stat-chip">Timeline: <strong>14 Apr 2024</strong> → <strong>today</strong> (zoom to inspect times)</div>
   `;
   summaryEl.classList.remove("hidden");
 }
@@ -577,6 +962,11 @@ function displayRecords(records) {
   }
 
   renderSummary(records);
+  timelineRecords = records;
+  initTimelineView();
+  if (zoomSlider) {
+    zoomSlider.value = "0";
+  }
   renderTimeline(records);
   renderTable(records);
   timelineSection.classList.remove("hidden");

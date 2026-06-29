@@ -283,6 +283,94 @@ body {
   border-radius: 3px;
 }
 
+.timeline-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.55rem;
+}
+
+.timeline-controls button {
+  width: auto;
+  min-width: 2.4rem;
+  padding: 0.45rem 0.75rem;
+}
+
+#zoom-slider {
+  flex: 1 1 160px;
+  max-width: 260px;
+  accent-color: var(--accent);
+}
+
+.zoom-range-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.timeline-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.timeline-axis-fine .axis-row {
+  min-height: 1.6rem;
+}
+
+.grid-line-minute,
+.grid-line-quarter-hour {
+  border-left: 1px dashed rgba(148, 163, 184, 0.1);
+}
+
+.grid-line-hour {
+  border-left: 1px dashed rgba(148, 163, 184, 0.22);
+}
+
+.grid-line-six-hour {
+  border-left: 1px dashed rgba(148, 163, 184, 0.3);
+}
+
+.validity-marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 0;
+  transform: translateX(-0.5px);
+  border-left: 2px solid rgba(255, 255, 255, 0.85);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.validity-marker-start {
+  border-left-color: rgba(52, 211, 153, 0.95);
+}
+
+.validity-marker-end {
+  border-left-color: rgba(248, 113, 113, 0.95);
+}
+
+.validity-marker-label {
+  position: absolute;
+  top: -1.05rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.08rem 0.28rem;
+  border-radius: 4px;
+  background: rgba(15, 20, 25, 0.92);
+  border: 1px solid var(--border);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.58rem;
+  line-height: 1.1;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.row-track {
+  overflow: visible;
+}
+
 .timeline-grid-legend {
   display: flex;
   flex-wrap: wrap;
