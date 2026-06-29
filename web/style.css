@@ -314,8 +314,8 @@ body {
   user-select: none;
 }
 
-.timeline-scroll {
-  cursor: grab;
+.timeline-scroll.is-panning * {
+  cursor: grabbing !important;
 }
 
 .timeline-axis-fine .axis-row {
@@ -423,6 +423,8 @@ body {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.15);
+  cursor: grab;
+  touch-action: pan-x;
 }
 
 .timeline-inner {
