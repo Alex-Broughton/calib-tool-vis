@@ -46,6 +46,25 @@ def _timespan_to_record_fields(timespan) -> tuple[Optional[str], Optional[str], 
     return begin, end, str(timespan)
 
 
+def prepare_where(
+    where: Optional[str],
+    dataset_type: Optional[str] = None,
+) -> Optional[str]:
+    """Validate and return a Butler SQL WHERE expression."""
+    if where is None:
+        return None
+    where = where.strip()
+    if not where:
+        return None
+    if not dataset_type:
+        raise ValueError(
+            "A dataset type is required when using WHERE. "
+            "Butler query_datasets needs a dataset type to interpret SQL "
+            "expressions over dimensions."
+        )
+    return where
+
+
 def _matching_data_ids(
     butler: dB.Butler,
     dataset_type_name: str,
@@ -78,6 +97,8 @@ def iter_calibrations(
     where: Optional[str] = None,
 ) -> Iterator[CalibrationRecord]:
     """Yield calibration dataset records from the Butler registry."""
+    prepare_where(where, dataset_type)
+
     if dataset_type:
         dataset_types = [butler.registry.getDatasetType(dataset_type)]
     else:
@@ -87,8 +108,9 @@ def iter_calibrations(
 
     for dt in dataset_types:
         allowed_data_ids: Optional[set[tuple[Any, ...]]] = None
-        if where:
-            allowed_data_ids = _matching_data_ids(butler, dt.name, collections, where)
+        prepared_where = prepare_where(where, dt.name)
+        if prepared_where:
+            allowed_data_ids = _matching_data_ids(butler, dt.name, collections, prepared_where)
 
         for assoc in butler.registry.queryDatasetAssociations(
             dt, collections=collections
@@ -164,8 +186,9 @@ def _parse_args():
         "--where",
         type=str,
         default=None,
-        help="Optional Butler where expression to filter by dimensions "
-        "(e.g. \"detector=204\").",
+        help="Optional Butler SQL WHERE expression, as used by butler query-datasets "
+        "(e.g. \"instrument = 'LSSTCam' AND detector = 204\"). "
+        "Requires -d/--dataset_type.",
     )
     parser.add_argument(
         "--json",
@@ -177,6 +200,12 @@ def _parse_args():
 
 def main() -> int:
     args = _parse_args()
+    try:
+        prepare_where(args.where, args.dataset_type)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
     butler = dB.Butler(args.repository, collections=args.collection)
     records = get_calibrations(
         butler,

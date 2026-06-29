@@ -26,7 +26,30 @@ dataset_type run collection dimensions validity_range
 | `-r`, `--repository` | `/sdf/group/rubin/repo/main/` | Butler repo to search |
 | `-c`, `--collection` | `LSSTCam/calib` | Collection to search |
 | `-d`, `--dataset_type` | *(none)* | Restrict to a specific dataset type |
-| `-w`, `--where` | *(none)* | Butler where expression to filter dimensions (e.g. `detector=204`) |
+| `-w`, `--where` | *(none)* | Butler SQL WHERE expression (same as `butler query-datasets --where`; requires `-d`) |
+
+### WHERE filter
+
+The `--where` flag accepts the same SQL-like expression Butler uses for
+`butler query-datasets`. A dataset type (`-d`) is required so Butler knows which
+dimensions are in scope.
+
+Examples:
+
+```bash
+# Single dimension
+python calibtool.py -c LSSTCam/calib -d bias -w "detector = 204"
+
+# Multiple clauses
+python calibtool.py -c LSSTCam/calib -d bias \
+  -w "instrument = 'LSSTCam' AND detector = 204"
+
+# IN list
+python calibtool.py -c LSSTCam/calib -d bias -w "detector IN (1, 2, 3)"
+```
+
+Use spaces around operators, single-quote string values, and combine clauses
+with `AND` / `OR` as in standard SQL.
 | `--json` | *(off)* | Output results as JSON |
 
 ## Web interface

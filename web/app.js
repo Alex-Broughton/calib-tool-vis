@@ -234,6 +234,18 @@ function buildQueryCommand(params) {
   return parts.join(" ");
 }
 
+function validateWhereFilter(params) {
+  const where = params.get("where")?.trim();
+  const datasetType = params.get("dataset_type")?.trim();
+  if (where && !datasetType) {
+    return (
+      "Dataset type is required when using WHERE. " +
+      "Use Butler SQL syntax, e.g. instrument = 'LSSTCam' AND detector = 204"
+    );
+  }
+  return null;
+}
+
 function setStatus(message, kind) {
   statusEl.textContent = message;
   statusEl.className = `status ${kind}`;
@@ -1017,6 +1029,12 @@ async function runLiveQuery(params) {
 
 async function runQuery() {
   const params = new URLSearchParams(new FormData(form));
+  const whereError = validateWhereFilter(params);
+  if (whereError) {
+    setStatus(whereError, "error");
+    return;
+  }
+
   submitBtn.disabled = true;
   loadBtn.disabled = true;
   timelineSection.classList.add("hidden");

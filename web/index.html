@@ -42,11 +42,18 @@
           <label for="dataset_type">Dataset type</label>
           <input id="dataset_type" name="dataset_type" type="text"
                  placeholder="e.g. electroBfDistortionMatrix">
+          <p class="field-hint">Required when using a WHERE filter.</p>
         </div>
         <div class="field field-wide">
           <label for="where">Where <span class="optional">(optional)</span></label>
-          <input id="where" name="where" type="text"
-                 placeholder='e.g. detector=204'>
+          <textarea id="where" name="where" rows="2" spellcheck="false"
+                    placeholder="instrument = 'LSSTCam' AND detector = 204"></textarea>
+          <p class="field-hint">
+            Butler SQL WHERE expression, as in
+            <code>butler query-datasets --where</code>.
+            Use spaces around <code>=</code>, quote strings, and combine clauses with
+            <code>AND</code>/<code>OR</code>.
+          </p>
         </div>
         <div class="field field-action">
           <button type="submit" id="submit-btn">Query</button>

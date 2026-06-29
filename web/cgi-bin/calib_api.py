@@ -59,6 +59,20 @@ def main() -> None:
         _json_response({"error": "collection is required"}, status=400)
         return
 
+    dataset_type = dataset_type.strip() if dataset_type else None
+    where = where.strip() if where else None
+    if where and not dataset_type:
+        _json_response(
+            {
+                "error": (
+                    "dataset_type is required when using WHERE. "
+                    "Use Butler SQL syntax, e.g. instrument = 'LSSTCam' AND detector = 204"
+                ),
+            },
+            status=400,
+        )
+        return
+
     repo_error = _validate_repo(repo)
     if repo_error:
         _json_response({"error": repo_error}, status=400)
@@ -69,8 +83,8 @@ def main() -> None:
         records = get_calibrations(
             butler,
             collection,
-            dataset_type=dataset_type.strip() if dataset_type else None,
-            where=where.strip() if where else None,
+            dataset_type=dataset_type,
+            where=where,
         )
         _json_response({"records": json.loads(records_to_json(records))})
     except Exception as exc:

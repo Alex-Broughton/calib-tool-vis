@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./query.sh -c LSSTCam/calib -d electroBfDistortionMatrix
-#   ./query.sh -c LSSTCam/calib -d bias -w "detector=204"
+#   ./query.sh -c LSSTCam/calib -d bias -w "instrument = 'LSSTCam' AND detector = 204"
 #
 # Output goes to ~/public_html/calib-tool-vis/data/latest.json by default.
 
@@ -36,6 +36,11 @@ done
 if [[ -z "${COLLECTION}" ]]; then
   echo "Error: -c COLLECTION is required" >&2
   usage
+fi
+
+if [[ -n "${WHERE}" && -z "${DATASET}" ]]; then
+  echo "Error: -d DATASET_TYPE is required when using -w WHERE" >&2
+  exit 1
 fi
 
 if [[ -f "${HOME}/loadLSST.bash" ]]; then

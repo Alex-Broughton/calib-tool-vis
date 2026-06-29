@@ -48,6 +48,14 @@ def _query(params: dict[str, str]) -> dict:
     if not collection.strip():
         return {"error": "collection is required"}
 
+    if where and not dataset_type:
+        return {
+            "error": (
+                "dataset_type is required when using WHERE. "
+                "Use Butler SQL syntax, e.g. instrument = 'LSSTCam' AND detector = 204"
+            ),
+        }
+
     repo_error = _validate_repo(repo)
     if repo_error:
         return {"error": repo_error}
