@@ -320,6 +320,12 @@ body {
   border-top: 2px solid rgba(251, 191, 36, 0.9);
 }
 
+.grid-legend-arrow {
+  color: var(--accent);
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
 .timeline-scroll {
   overflow-x: auto;
   overflow-y: hidden;
@@ -510,7 +516,13 @@ body {
 .timeline-bar-open {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
-  box-shadow: inset -8px 0 8px -8px rgba(255, 255, 255, 0.35);
+  clip-path: polygon(
+    0 0,
+    calc(100% - 8px) 0,
+    100% 50%,
+    calc(100% - 8px) 100%,
+    0 100%
+  );
 }
 
 .timeline-bar:hover {

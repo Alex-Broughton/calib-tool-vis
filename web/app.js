@@ -389,6 +389,16 @@ function buildLegend(records, colorMap) {
   }
 }
 
+function isOpenEnded(record) {
+  if (record.validity_end) {
+    return false;
+  }
+  if (record.validity_range && /∞|inf/i.test(record.validity_range)) {
+    return true;
+  }
+  return true;
+}
+
 function buildBarTooltip(record) {
   const lines = [
     record.dataset_type,
@@ -404,6 +414,8 @@ function buildBarTooltip(record) {
   }
   if (end) {
     lines.push(`End: ${formatUtc(end)}`, `     ${formatChile(end)}`);
+  } else if (isOpenEnded(record)) {
+    lines.push("End: ∞ (open-ended)");
   }
   return lines.join("\n");
 }
@@ -460,7 +472,8 @@ function renderTimeline(records) {
     track.className = "row-track";
 
     const rawStart = parseDate(record.validity_start) ?? bounds.min;
-    const rawEnd = parseDate(record.validity_end) ?? bounds.max;
+    const openEnded = isOpenEnded(record);
+    const rawEnd = openEnded ? bounds.max : (parseDate(record.validity_end) ?? bounds.max);
     const start = clipDate(rawStart, bounds);
     const end = clipDate(rawEnd, bounds);
 
@@ -470,12 +483,14 @@ function renderTimeline(records) {
 
     const bar = document.createElement("div");
     bar.className = "timeline-bar";
-    if (!record.validity_end) {
+    const barColor = colorForCollection(record.collection, colorMap);
+    if (openEnded) {
       bar.classList.add("timeline-bar-open");
     }
     bar.style.left = `${left}px`;
     bar.style.width = `${width}px`;
-    bar.style.background = colorForCollection(record.collection, colorMap);
+    bar.style.background = barColor;
+    bar.style.setProperty("--bar-color", barColor);
     bar.title = buildBarTooltip(record);
 
     track.appendChild(bar);
