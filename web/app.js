@@ -43,6 +43,10 @@ const MODE = resolveMode();
 const API_URL = resolveApiUrl();
 const DATA_URL = new URL("data/latest.json", window.location.href).href;
 
+const TIMELINE_START = Date.UTC(2024, 3, 14, 0, 0, 0, 0);
+const PX_PER_DAY = 7;
+const CHILE_TZ = "America/Santiago";
+
 const PALETTE = [
   "#38bdf8", "#34d399", "#a78bfa", "#fb7185",
   "#fbbf24", "#2dd4bf", "#f472b6", "#818cf8",
@@ -62,6 +66,38 @@ const uploadInput = document.getElementById("upload-input");
 const commandPanel = document.getElementById("command-panel");
 const commandText = document.getElementById("command-text");
 const hostingNote = document.getElementById("hosting-note");
+
+const utcDateTimeFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+const chileDateTimeFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: CHILE_TZ,
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+const utcMonthFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  month: "short",
+  year: "numeric",
+});
+
+const chileMonthFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: CHILE_TZ,
+  month: "short",
+  year: "numeric",
+});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -140,9 +176,44 @@ function parseDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function formatDate(date) {
-  if (!date) return "∞";
-  return date.toISOString().slice(0, 10);
+function getTimelineBounds() {
+  const min = new Date(TIMELINE_START);
+  const max = new Date();
+  max.setUTCHours(23, 59, 59, 999);
+  return { min, max };
+}
+
+function msPerDay() {
+  return 24 * 60 * 60 * 1000;
+}
+
+function computeTimelineWidth(bounds) {
+  const days = Math.ceil((bounds.max - bounds.min) / msPerDay()) + 1;
+  return Math.max(days * PX_PER_DAY, 720);
+}
+
+function dateToPx(date, bounds, widthPx) {
+  const span = bounds.max - bounds.min;
+  if (!date || span <= 0) return 0;
+  return ((date - bounds.min) / span) * widthPx;
+}
+
+function clipDate(date, bounds) {
+  return new Date(
+    Math.min(Math.max(date.getTime(), bounds.min.getTime()), bounds.max.getTime())
+  );
+}
+
+function formatUtc(date) {
+  return `${utcDateTimeFmt.format(date)} UTC`;
+}
+
+function formatChile(date) {
+  return `${chileDateTimeFmt.format(date)} Chile`;
+}
+
+function formatDualTime(date) {
+  return `${formatUtc(date)}\n${formatChile(date)}`;
 }
 
 function shortLabel(record) {
@@ -158,66 +229,145 @@ function colorForCollection(collection, colorMap) {
   return colorMap.get(collection);
 }
 
-function computeTimeBounds(records) {
-  let min = null;
-  let max = null;
-
-  for (const record of records) {
-    const start = parseDate(record.validity_start);
-    const end = parseDate(record.validity_end);
-
-    if (start) {
-      min = min === null ? start : (start < min ? start : min);
-    }
-    if (end) {
-      max = max === null ? end : (end > max ? end : max);
-    } else if (start) {
-      const openEnd = new Date(start.getTime() + 365 * 24 * 60 * 60 * 1000);
-      max = max === null ? openEnd : (openEnd > max ? openEnd : max);
-    }
-  }
-
-  if (!min || !max || min >= max) {
-    const now = new Date();
-    min = new Date(now.getFullYear() - 1, 0, 1);
-    max = new Date(now.getFullYear() + 1, 0, 1);
-  }
-
-  const pad = (max - min) * 0.04;
-  return { min: new Date(min - pad), max: new Date(max + pad) };
+function startOfUtcDay(date) {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
 }
 
-function positionPercent(date, bounds) {
-  const span = bounds.max - bounds.min;
-  if (!date || span <= 0) return 0;
-  return ((date - bounds.min) / span) * 100;
+function eachUtcDay(bounds) {
+  const days = [];
+  const cursor = startOfUtcDay(bounds.min);
+  const end = bounds.max.getTime();
+  while (cursor.getTime() <= end) {
+    days.push(new Date(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
 }
 
-function buildAxis(bounds) {
-  const axis = document.createElement("div");
-  axis.className = "axis";
+function eachUtcMonthStart(bounds) {
+  const months = [];
+  const cursor = startOfUtcDay(bounds.min);
+  cursor.setUTCDate(1);
+  if (cursor < bounds.min) {
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  while (cursor.getTime() <= bounds.max.getTime()) {
+    months.push(new Date(cursor));
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return months;
+}
 
-  const label = document.createElement("div");
-  label.className = "axis-label";
-  label.textContent = "Time →";
-  axis.appendChild(label);
+function eachUtcYearStart(bounds) {
+  const years = [];
+  for (let year = bounds.min.getUTCFullYear(); year <= bounds.max.getUTCFullYear(); year += 1) {
+    const jan1 = Date.UTC(year, 0, 1, 0, 0, 0, 0);
+    if (jan1 >= bounds.min.getTime() && jan1 <= bounds.max.getTime()) {
+      years.push(new Date(jan1));
+    }
+  }
+  return years;
+}
 
-  const track = document.createElement("div");
-  track.className = "axis-track";
+function createGridLayer(bounds, widthPx) {
+  const grid = document.createElement("div");
+  grid.className = "timeline-grid";
+  grid.style.width = `${widthPx}px`;
 
-  const tickCount = 6;
-  for (let i = 0; i <= tickCount; i += 1) {
-    const fraction = i / tickCount;
-    const time = new Date(bounds.min.getTime() + fraction * (bounds.max - bounds.min));
-    const tick = document.createElement("div");
-    tick.className = "axis-tick";
-    tick.style.left = `${fraction * 100}%`;
-    tick.textContent = formatDate(time);
-    track.appendChild(tick);
+  for (const day of eachUtcDay(bounds)) {
+    const line = document.createElement("div");
+    line.className = "grid-line grid-line-day";
+    line.style.left = `${dateToPx(day, bounds, widthPx)}px`;
+    grid.appendChild(line);
   }
 
-  axis.appendChild(track);
-  return axis;
+  for (const month of eachUtcMonthStart(bounds)) {
+    const line = document.createElement("div");
+    line.className = "grid-line grid-line-month";
+    line.style.left = `${dateToPx(month, bounds, widthPx)}px`;
+    grid.appendChild(line);
+  }
+
+  for (const year of eachUtcYearStart(bounds)) {
+    const line = document.createElement("div");
+    line.className = "grid-line grid-line-year";
+    line.style.left = `${dateToPx(year, bounds, widthPx)}px`;
+    line.title = formatDualTime(year);
+    grid.appendChild(line);
+  }
+
+  const todayLine = document.createElement("div");
+  todayLine.className = "grid-line grid-line-today";
+  todayLine.style.left = `${dateToPx(bounds.max, bounds, widthPx)}px`;
+  todayLine.title = `Today\n${formatDualTime(bounds.max)}`;
+  grid.appendChild(todayLine);
+
+  return grid;
+}
+
+function createAxisLabel(date, bounds, widthPx, kind, zone) {
+  const tick = document.createElement("div");
+  tick.className = `axis-tick axis-tick-${kind} axis-tick-${zone}`;
+  tick.style.left = `${dateToPx(date, bounds, widthPx)}px`;
+
+  if (zone === "utc") {
+    tick.textContent = kind === "year"
+      ? String(date.getUTCFullYear())
+      : utcMonthFmt.format(date);
+  } else {
+    tick.textContent = kind === "year"
+      ? new Intl.DateTimeFormat("en-GB", { timeZone: CHILE_TZ, year: "numeric" }).format(date)
+      : chileMonthFmt.format(date);
+  }
+
+  tick.title = formatDualTime(date);
+  return tick;
+}
+
+function buildDualAxis(bounds, widthPx) {
+  const axisBlock = document.createElement("div");
+  axisBlock.className = "timeline-axis-block";
+
+  const side = document.createElement("div");
+  side.className = "axis-side";
+  side.innerHTML = `<span class="axis-side-label">UTC</span><span class="axis-side-label">Chile</span>`;
+
+  const trackWrap = document.createElement("div");
+  trackWrap.className = "timeline-track-wrap";
+  trackWrap.style.width = `${widthPx}px`;
+
+  const utcRow = document.createElement("div");
+  utcRow.className = "axis-row axis-row-utc";
+  const chileRow = document.createElement("div");
+  chileRow.className = "axis-row axis-row-chile";
+
+  utcRow.appendChild(createAxisLabel(bounds.min, bounds, widthPx, "month", "utc"));
+  chileRow.appendChild(createAxisLabel(bounds.min, bounds, widthPx, "month", "chile"));
+
+  for (const year of eachUtcYearStart(bounds)) {
+    utcRow.appendChild(createAxisLabel(year, bounds, widthPx, "year", "utc"));
+    chileRow.appendChild(createAxisLabel(year, bounds, widthPx, "year", "chile"));
+  }
+
+  for (const month of eachUtcMonthStart(bounds)) {
+    utcRow.appendChild(createAxisLabel(month, bounds, widthPx, "month", "utc"));
+    chileRow.appendChild(createAxisLabel(month, bounds, widthPx, "month", "chile"));
+  }
+
+  const todayUtc = createAxisLabel(bounds.max, bounds, widthPx, "month", "utc");
+  todayUtc.classList.add("axis-tick-today");
+  todayUtc.textContent = "Today";
+  const todayChile = createAxisLabel(bounds.max, bounds, widthPx, "month", "chile");
+  todayChile.classList.add("axis-tick-today");
+  todayChile.textContent = "Today";
+  utcRow.appendChild(todayUtc);
+  chileRow.appendChild(todayChile);
+
+  trackWrap.append(utcRow, chileRow);
+  axisBlock.append(side, trackWrap);
+  return axisBlock;
 }
 
 function buildLegend(records, colorMap) {
@@ -239,19 +389,59 @@ function buildLegend(records, colorMap) {
   }
 }
 
+function buildBarTooltip(record) {
+  const lines = [
+    record.dataset_type,
+    record.run,
+    record.collection,
+    record.dimensions,
+    record.validity_range,
+  ];
+  const start = parseDate(record.validity_start);
+  const end = parseDate(record.validity_end);
+  if (start) {
+    lines.push(`Start: ${formatUtc(start)}`, `       ${formatChile(start)}`);
+  }
+  if (end) {
+    lines.push(`End: ${formatUtc(end)}`, `     ${formatChile(end)}`);
+  }
+  return lines.join("\n");
+}
+
 function renderTimeline(records) {
   timelineEl.innerHTML = "";
-  const colorMap = new Map();
-  const bounds = computeTimeBounds(records);
+  timelineEl.className = "timeline-scroll";
 
-  timelineEl.appendChild(buildAxis(bounds));
+  const colorMap = new Map();
+  const bounds = getTimelineBounds();
+  const widthPx = computeTimelineWidth(bounds);
+  const gridLayer = createGridLayer(bounds, widthPx);
+
   buildLegend(records, colorMap);
+
+  const inner = document.createElement("div");
+  inner.className = "timeline-inner";
+  inner.style.setProperty("--track-width", `${widthPx}px`);
+
+  inner.appendChild(buildDualAxis(bounds, widthPx));
 
   const sorted = [...records].sort((a, b) => {
     const aStart = parseDate(a.validity_start)?.getTime() ?? 0;
     const bStart = parseDate(b.validity_start)?.getTime() ?? 0;
     return aStart - bStart || a.collection.localeCompare(b.collection);
   });
+
+  const body = document.createElement("div");
+  body.className = "timeline-body";
+
+  const gridMount = document.createElement("div");
+  gridMount.className = "timeline-grid-mount";
+  gridMount.style.width = `${widthPx}px`;
+  gridMount.appendChild(gridLayer);
+  body.appendChild(gridMount);
+
+  const rowsContainer = document.createElement("div");
+  rowsContainer.className = "timeline-rows";
 
   for (const record of sorted) {
     const row = document.createElement("div");
@@ -262,33 +452,41 @@ function renderTimeline(records) {
     label.textContent = shortLabel(record);
     label.title = `${record.collection}\n${record.dimensions}`;
 
+    const trackWrap = document.createElement("div");
+    trackWrap.className = "timeline-track-wrap";
+    trackWrap.style.width = `${widthPx}px`;
+
     const track = document.createElement("div");
     track.className = "row-track";
 
-    const start = parseDate(record.validity_start) ?? bounds.min;
-    const end = parseDate(record.validity_end) ?? bounds.max;
+    const rawStart = parseDate(record.validity_start) ?? bounds.min;
+    const rawEnd = parseDate(record.validity_end) ?? bounds.max;
+    const start = clipDate(rawStart, bounds);
+    const end = clipDate(rawEnd, bounds);
 
-    const left = positionPercent(start, bounds);
-    const right = positionPercent(end, bounds);
-    const width = Math.max(right - left, 0.4);
+    const left = dateToPx(start, bounds, widthPx);
+    const right = dateToPx(end, bounds, widthPx);
+    const width = Math.max(right - left, 3);
 
     const bar = document.createElement("div");
     bar.className = "timeline-bar";
-    bar.style.left = `${left}%`;
-    bar.style.width = `${width}%`;
+    if (!record.validity_end) {
+      bar.classList.add("timeline-bar-open");
+    }
+    bar.style.left = `${left}px`;
+    bar.style.width = `${width}px`;
     bar.style.background = colorForCollection(record.collection, colorMap);
-    bar.title = [
-      record.dataset_type,
-      record.run,
-      record.collection,
-      record.dimensions,
-      record.validity_range,
-    ].join("\n");
+    bar.title = buildBarTooltip(record);
 
     track.appendChild(bar);
-    row.append(label, track);
-    timelineEl.appendChild(row);
+    trackWrap.appendChild(track);
+    row.append(label, trackWrap);
+    rowsContainer.appendChild(row);
   }
+
+  body.appendChild(rowsContainer);
+  inner.appendChild(body);
+  timelineEl.appendChild(inner);
 }
 
 function renderTable(records) {
@@ -309,11 +507,13 @@ function renderTable(records) {
 function renderSummary(records) {
   const collections = new Set(records.map((r) => r.collection));
   const types = new Set(records.map((r) => r.dataset_type));
+  const bounds = getTimelineBounds();
 
   summaryEl.innerHTML = `
     <div class="stat-chip"><strong>${records.length}</strong> calibration${records.length === 1 ? "" : "s"}</div>
     <div class="stat-chip"><strong>${collections.size}</strong> collection${collections.size === 1 ? "" : "s"}</div>
     <div class="stat-chip"><strong>${types.size}</strong> dataset type${types.size === 1 ? "" : "s"}</div>
+    <div class="stat-chip">Timeline: <strong>14 Apr 2024</strong> → <strong>today</strong></div>
   `;
   summaryEl.classList.remove("hidden");
 }
@@ -439,7 +639,6 @@ async function runQuery() {
   }
 }
 
-// Auto-load existing results on static hosting.
 if (MODE === "static") {
   loadStaticResults(false);
 }
