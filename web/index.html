@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Override if your CGI lives elsewhere: content="/~username/cgi-bin/calib_api.cgi" -->
+  <!-- Hosting mode: static (S3DF public_html), server (serve.py), or cgi -->
+  <meta name="calib-mode" content="">
+  <!-- Optional CGI URL override -->
   <meta name="calib-api-url" content="">
   <title>Calibration Timeline</title>
   <link rel="stylesheet" href="style.css">
@@ -20,6 +22,7 @@
         <p class="subtitle">
           Browse calibration datasets and their validity ranges across a Butler collection.
         </p>
+        <p id="hosting-note" class="hosting-note hidden"></p>
       </div>
     </header>
 
@@ -48,7 +51,25 @@
         <div class="field field-action">
           <button type="submit" id="submit-btn">Query</button>
         </div>
+        <div class="field field-action">
+          <button type="button" id="load-btn" class="secondary">Load results</button>
+        </div>
+        <div class="field field-action">
+          <label class="upload-btn secondary">
+            Upload JSON
+            <input id="upload-input" type="file" accept=".json,application/json" hidden>
+          </label>
+        </div>
       </form>
+    </section>
+
+    <section id="command-panel" class="panel command-panel hidden">
+      <h2>Run on the cluster</h2>
+      <p class="command-help">
+        S3DF <code>public_html</code> serves static files only — Butler queries must run on a cluster node.
+        Copy and run this command, then click <strong>Load results</strong>.
+      </p>
+      <pre id="command-text" class="command-text"></pre>
     </section>
 
     <section id="status" class="status hidden" aria-live="polite"></section>

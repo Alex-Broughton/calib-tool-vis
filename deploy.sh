@@ -1,36 +1,43 @@
 #!/bin/bash
-# Deploy the web UI and CGI endpoint to ~/public_html on the cluster.
+# Deploy the static web UI to ~/public_html on S3DF.
 #
 # Usage (from repo root, on the cluster):
 #   ./deploy.sh
 #
-# Prerequisites:
-#   - LSST Science Pipelines available (setup handled by loadLSST.bash)
-#   - ~/public_html exists and CGI is enabled for ~/public_html/cgi-bin/
+# S3DF public_html is static-only (no CGI). Use query.sh to generate JSON,
+# or serve.py + SSH port forwarding for live interactive queries.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="${HOME}/public_html/calib-tool-vis"
-CGI_TARGET="${HOME}/public_html/cgi-bin"
+WEB_BASE="https://s3df.slac.stanford.edu/people/${USER}"
 
 echo "Deploying to ${TARGET}"
 
-mkdir -p "${TARGET}" "${CGI_TARGET}" "${TARGET}/cgi-bin"
+mkdir -p "${TARGET}/data"
 
 rsync -av --delete \
+  --exclude 'data/latest.json' \
   "${REPO_ROOT}/web/" \
   "${TARGET}/"
 
 install -m 644 "${REPO_ROOT}/calibtool.py" "${TARGET}/calibtool.py"
-install -m 755 "${REPO_ROOT}/web/cgi-bin/calib_api.cgi" "${CGI_TARGET}/calib_api.cgi"
-install -m 755 "${REPO_ROOT}/web/cgi-bin/calib_api.py" "${CGI_TARGET}/calib_api.py"
-install -m 755 "${REPO_ROOT}/web/cgi-bin/calib_api.cgi" "${TARGET}/cgi-bin/calib_api.cgi"
-install -m 755 "${REPO_ROOT}/web/cgi-bin/calib_api.py" "${TARGET}/cgi-bin/calib_api.py"
+install -m 755 "${REPO_ROOT}/query.sh" "${TARGET}/query.sh"
 
-echo "Done."
-echo "  Web UI:  https://$(hostname -f)/~${USER}/calib-tool-vis/"
-echo "  API:     https://$(hostname -f)/~${USER}/cgi-bin/calib_api.cgi"
+echo "Setting public read permissions on ${TARGET}..."
+chmod -R a+rX "${TARGET}"
+
 echo ""
-echo "Test the API with:"
-echo "  curl 'https://$(hostname -f)/~${USER}/cgi-bin/calib_api.cgi?ping=1'"
+echo "Done."
+echo "  Web UI:  ${WEB_BASE}/calib-tool-vis/"
+echo ""
+echo "Run a query on the cluster:"
+echo "  cd ${TARGET} && ./query.sh -c LSSTCam/calib -d electroBfDistortionMatrix"
+echo ""
+echo "Then open the web UI and click Load results."
+echo ""
+echo "For live interactive queries via SSH tunnel:"
+echo "  python ${REPO_ROOT}/serve.py"
+echo "  ssh -L 8765:localhost:8765 \$(hostname -s)"
+echo "  open http://localhost:8765"

@@ -10,7 +10,7 @@ A web interface and CLI for listing calibration datasets in an LSST Butler repos
 ## CLI usage
 
 ```bash
-python calibtool.py -r main -c LSSTCam/calib -d electroBfDistortionMatrix
+python calibtool.py -r /sdf/group/rubin/repo/main/ -c LSSTCam/calib -d electroBfDistortionMatrix
 ```
 
 Each line of output follows:
@@ -29,93 +29,107 @@ dataset_type run collection dimensions validity_range
 | `-w`, `--where` | *(none)* | Butler where expression to filter dimensions (e.g. `detector=204`) |
 | `--json` | *(off)* | Output results as JSON |
 
-### Examples
-
-```bash
-# List all calibrations in the default LSSTCam collection
-python calibtool.py
-
-# Filter to one dataset type
-python calibtool.py -d electroBfDistortionMatrix
-
-# Filter by detector
-python calibtool.py -d bias -w "detector=204"
-
-# JSON output for scripting
-python calibtool.py -d bias --json
-```
-
 ## Web interface
 
-The web UI lives in `web/` and talks to a CGI endpoint in `cgi-bin/` that runs the same query logic as the CLI.
+The web UI lives in `web/` and renders a timeline from calibration JSON data.
+
+### Important: S3DF hosting is static-only
+
+On S3DF, personal `public_html` is served at:
+
+```
+https://s3df.slac.stanford.edu/people/<username>/
+```
+
+This is **static hosting only** — no CGI or server-side scripts. Compute nodes like `sdfiana012` also do not serve HTTPS directly, so do not curl them.
+
+Use one of these workflows:
+
+#### Option A — Static (recommended for public_html)
+
+1. Deploy:
+   ```bash
+   ./deploy.sh
+   ```
+
+2. Run a query on the cluster:
+   ```bash
+   cd ~/public_html/calib-tool-vis
+   ./query.sh -c LSSTCam/calib -d electroBfDistortionMatrix
+   ```
+   This writes `data/latest.json`.
+
+3. Open the web UI and click **Load results**:
+   ```
+   https://s3df.slac.stanford.edu/people/<username>/calib-tool-vis/
+   ```
+
+The form shows the exact `query.sh` command to run. You can also **Upload JSON** from `calibtool.py --json`.
+
+#### Option B — Interactive via SSH tunnel
+
+For live queries from the browser (no manual JSON step):
+
+```bash
+# On the cluster
+python serve.py
+
+# From your laptop (new terminal)
+ssh -L 8765:localhost:8765 sdfiana012
+
+# Browser
+open http://localhost:8765
+```
+
+Test the API:
+```bash
+curl 'http://localhost:8765/api/query?ping=1'
+```
 
 ### Deploy on the cluster
 
-From the repo root on the cluster (with LSST set up in your environment):
-
 ```bash
-chmod +x deploy.sh
+chmod +x deploy.sh query.sh
 ./deploy.sh
 ```
 
-This copies:
+`deploy.sh` runs `chmod -R a+rX` on the deployed directory so new files are web-visible.
+`query.sh` does the same for `data/` after writing `latest.json`. If you add files
+manually under `public_html`, run:
 
-- `web/*` → `~/public_html/calib-tool-vis/`
-- `cgi-bin/calib_api.py` → `~/public_html/cgi-bin/calib_api.py`
-- `calibtool.py` → `~/public_html/calib-tool-vis/calibtool.py`
-
-Then open:
-
-```
-https://<cluster-host>/~<username>/calib-tool-vis/
+```bash
+cd ~/public_html && chmod -R a+rX *
 ```
 
-### CGI setup notes
+Files deployed to `~/public_html/calib-tool-vis/`:
 
-- The API entry point is **`calib_api.cgi`** (a bash wrapper that sources `loadLSST.bash` then runs Python). Many web servers only execute `.cgi` files, not `.py`.
-- Both files must be executable: `chmod 755 ~/public_html/cgi-bin/calib_api.cgi ~/public_html/cgi-bin/calib_api.py`
-- `calibtool.py` must be at `~/public_html/calib-tool-vis/calibtool.py`
+```
+calib-tool-vis/
+  index.html, style.css, app.js
+  calibtool.py, query.sh
+  data/latest.json   ← created by query.sh
+```
 
 ### Troubleshooting
 
-**"API returned HTML instead of JSON"** — the browser hit an HTML error page (404/500), not the CGI script.
+**`curl: Failed to connect ... port 443: Connection refused`**
 
-1. Re-run `./deploy.sh` on the cluster.
-2. Test the API directly:
-   ```bash
-   curl "https://$(hostname -f)/~${USER}/cgi-bin/calib_api.cgi?ping=1"
-   ```
-   Expected: `{"ok": true}`. If you get HTML, CGI is not set up correctly.
-3. Confirm files exist and are executable:
-   ```bash
-   ls -l ~/public_html/cgi-bin/calib_api.*
-   ```
-4. If `ping` works but queries fail, the error JSON will include a Python traceback (LSST/Butler issue).
-5. If your CGI URL differs, set it in `index.html`:
-   ```html
-   <meta name="calib-api-url" content="/~abrought/cgi-bin/calib_api.cgi">
-   ```
-
-### Manual layout
-
-If you prefer not to use `deploy.sh`, the expected layout under `~/public_html` is:
-
+You are curling a compute node hostname (`sdfiana012...`). That node does not run a web server. Use the S3DF URL instead:
 ```
-public_html/
-  calib-tool-vis/
-    index.html
-    style.css
-    app.js
-    calibtool.py
-  cgi-bin/
-    calib_api.py
+https://s3df.slac.stanford.edu/people/<username>/calib-tool-vis/
 ```
 
-The API URL in `web/app.js` is `../cgi-bin/calib_api.py` relative to the web directory.
+**"API returned HTML instead of JSON"**
+
+S3DF static hosting cannot run CGI. Use `query.sh` + **Load results**, or `serve.py` with an SSH tunnel.
+
+**No results file yet**
+
+Run `query.sh` on the cluster first, then click **Load results** in the browser.
 
 ## JSON record format
 
-Each record returned by `--json` or the web API:
+Each record returned by `--json`, `query.sh`, or the API:
 
 ```json
 {

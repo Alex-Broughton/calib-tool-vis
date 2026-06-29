@@ -66,6 +66,13 @@ body {
   color: var(--text-muted);
 }
 
+.hosting-note {
+  margin: 0.75rem 0 0;
+  max-width: 60ch;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -119,7 +126,8 @@ body {
   grid-column: span 2;
 }
 
-.field-action button {
+.field-action button,
+.upload-btn {
   width: 100%;
   padding: 0.65rem 1.25rem;
   border: none;
@@ -130,9 +138,19 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.12s, filter 0.12s;
+  text-align: center;
+  display: inline-block;
 }
 
-.field-action button:hover:not(:disabled) {
+.field-action button.secondary,
+.upload-btn.secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.field-action button:hover:not(:disabled),
+.upload-btn:hover {
   filter: brightness(1.06);
   transform: translateY(-1px);
 }
@@ -140,6 +158,35 @@ body {
 .field-action button:disabled {
   opacity: 0.6;
   cursor: wait;
+}
+
+.command-panel {
+  margin-bottom: 1.25rem;
+}
+
+.command-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.command-help {
+  margin: 0 0 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.command-text {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  background: #0b1220;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.82rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .status {

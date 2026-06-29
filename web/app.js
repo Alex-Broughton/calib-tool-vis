@@ -1,22 +1,47 @@
 /**
  * Calibration timeline visualization.
+ *
+ * Hosting modes:
+ *   static — S3DF public_html; run query.sh on cluster, load data/latest.json
+ *   server — serve.py via SSH tunnel; live API at /api/query
+ *   cgi    — legacy CGI endpoint (if available)
  */
+
+function resolveMode() {
+  const override = document.querySelector('meta[name="calib-mode"]')?.content?.trim();
+  if (override) {
+    return override;
+  }
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return "server";
+  }
+  if (window.location.hostname === "s3df.slac.stanford.edu") {
+    return "static";
+  }
+  if (document.querySelector('meta[name="calib-api-url"]')?.content?.trim()) {
+    return "cgi";
+  }
+  return "static";
+}
 
 function resolveApiUrl() {
   const override = document.querySelector('meta[name="calib-api-url"]')?.content?.trim();
   if (override) {
     return override;
   }
-
+  if (resolveMode() === "server") {
+    return new URL("/api/query", window.location.href).href;
+  }
   const userMatch = window.location.pathname.match(/^\/~[^/]+/);
   if (userMatch) {
     return `${window.location.origin}${userMatch[0]}/cgi-bin/calib_api.cgi`;
   }
-
   return new URL("cgi-bin/calib_api.cgi", window.location.href).href;
 }
 
+const MODE = resolveMode();
 const API_URL = resolveApiUrl();
+const DATA_URL = new URL("data/latest.json", window.location.href).href;
 
 const PALETTE = [
   "#38bdf8", "#34d399", "#a78bfa", "#fb7185",
@@ -32,11 +57,67 @@ const legendEl = document.getElementById("legend");
 const tableSection = document.getElementById("table-section");
 const tableBody = document.querySelector("#details-table tbody");
 const submitBtn = document.getElementById("submit-btn");
+const loadBtn = document.getElementById("load-btn");
+const uploadInput = document.getElementById("upload-input");
+const commandPanel = document.getElementById("command-panel");
+const commandText = document.getElementById("command-text");
+const hostingNote = document.getElementById("hosting-note");
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   await runQuery();
 });
+
+loadBtn.addEventListener("click", async () => {
+  await loadStaticResults(true);
+});
+
+uploadInput.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const text = await file.text();
+    const records = normalizeRecords(JSON.parse(text));
+    displayRecords(records);
+    hideStatus();
+  } catch (error) {
+    setStatus(`Could not read JSON file: ${error.message}`, "error");
+  } finally {
+    uploadInput.value = "";
+  }
+});
+
+initHostingNote();
+
+function initHostingNote() {
+  if (MODE === "static") {
+    hostingNote.textContent =
+      "Static hosting: run query.sh on the cluster, then load data/latest.json here.";
+    hostingNote.classList.remove("hidden");
+  } else if (MODE === "server") {
+    hostingNote.textContent = "Interactive mode via serve.py.";
+    hostingNote.classList.remove("hidden");
+  }
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function buildQueryCommand(params) {
+  const parts = ["query.sh", "-r", shellQuote(params.get("repo")), "-c", shellQuote(params.get("collection"))];
+  const datasetType = params.get("dataset_type")?.trim();
+  const where = params.get("where")?.trim();
+  if (datasetType) {
+    parts.push("-d", shellQuote(datasetType));
+  }
+  if (where) {
+    parts.push("-w", shellQuote(where));
+  }
+  return parts.join(" ");
+}
 
 function setStatus(message, kind) {
   statusEl.textContent = message;
@@ -46,6 +127,11 @@ function setStatus(message, kind) {
 
 function hideStatus() {
   statusEl.classList.add("hidden");
+}
+
+function showCommand(params) {
+  commandText.textContent = buildQueryCommand(params);
+  commandPanel.classList.remove("hidden");
 }
 
 function parseDate(value) {
@@ -78,7 +164,7 @@ function computeTimeBounds(records) {
 
   for (const record of records) {
     const start = parseDate(record.validity_start);
-    let end = parseDate(record.validity_end);
+    const end = parseDate(record.validity_end);
 
     if (start) {
       min = min === null ? start : (start < min ? start : min);
@@ -240,53 +326,120 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
-async function readJsonResponse(response) {
+function normalizeRecords(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (payload?.records && Array.isArray(payload.records)) {
+    return payload.records;
+  }
+  throw new Error("JSON must be an array of records or an object with a records array.");
+}
+
+async function readJsonResponse(response, sourceLabel) {
   const text = await response.text();
   try {
     return JSON.parse(text);
   } catch {
     const snippet = text.replace(/\s+/g, " ").trim().slice(0, 180);
     throw new Error(
-      `API returned HTML instead of JSON (${response.status}). ` +
-      `Check that ${API_URL} exists and is executable. ` +
+      `${sourceLabel} returned non-JSON (${response.status}). ` +
       `Response: ${snippet || "(empty)"}`
     );
   }
 }
 
+function displayRecords(records) {
+  hideStatus();
+  commandPanel.classList.add("hidden");
+
+  if (records.length === 0) {
+    setStatus("No calibrations matched your query.", "empty");
+    timelineSection.classList.add("hidden");
+    tableSection.classList.add("hidden");
+    summaryEl.classList.add("hidden");
+    return;
+  }
+
+  renderSummary(records);
+  renderTimeline(records);
+  renderTable(records);
+  timelineSection.classList.remove("hidden");
+  tableSection.classList.remove("hidden");
+}
+
+async function loadStaticResults(showErrors) {
+  submitBtn.disabled = true;
+  loadBtn.disabled = true;
+  setStatus("Loading data/latest.json…", "loading");
+
+  try {
+    const response = await fetch(`${DATA_URL}?t=${Date.now()}`);
+    if (!response.ok) {
+      throw new Error(
+        `No results file yet (${response.status}). Run query.sh on the cluster first.`
+      );
+    }
+    const payload = await readJsonResponse(response, "data/latest.json");
+    displayRecords(normalizeRecords(payload));
+  } catch (error) {
+    if (showErrors) {
+      setStatus(error.message, "error");
+    } else {
+      hideStatus();
+    }
+  } finally {
+    submitBtn.disabled = false;
+    loadBtn.disabled = false;
+  }
+}
+
+async function runLiveQuery(params) {
+  const response = await fetch(`${API_URL}?${params.toString()}`);
+  const payload = await readJsonResponse(response, "API");
+
+  if (!response.ok || payload.error) {
+    const detail = payload.detail ? `\n\n${payload.detail}` : "";
+    throw new Error((payload.error || `Request failed (${response.status})`) + detail);
+  }
+
+  displayRecords(normalizeRecords(payload));
+}
+
 async function runQuery() {
   const params = new URLSearchParams(new FormData(form));
   submitBtn.disabled = true;
-  setStatus("Querying Butler registry…", "loading");
+  loadBtn.disabled = true;
   timelineSection.classList.add("hidden");
   tableSection.classList.add("hidden");
   summaryEl.classList.add("hidden");
 
-  try {
-    const response = await fetch(`${API_URL}?${params.toString()}`);
-    const payload = await readJsonResponse(response);
-
-    if (!response.ok || payload.error) {
-      const detail = payload.detail ? `\n\n${payload.detail}` : "";
-      throw new Error((payload.error || `Request failed (${response.status})`) + detail);
-    }
-
-    const records = payload.records ?? [];
-    hideStatus();
-
-    if (records.length === 0) {
-      setStatus("No calibrations matched your query.", "empty");
+  if (MODE === "static") {
+    showCommand(params);
+    setStatus("Run the command below on the cluster, then click Load results.", "loading");
+    await loadStaticResults(false);
+    if (statusEl.classList.contains("hidden")) {
       return;
     }
+    submitBtn.disabled = false;
+    loadBtn.disabled = false;
+    return;
+  }
 
-    renderSummary(records);
-    renderTimeline(records);
-    renderTable(records);
-    timelineSection.classList.remove("hidden");
-    tableSection.classList.remove("hidden");
+  setStatus("Querying Butler registry…", "loading");
+  commandPanel.classList.add("hidden");
+
+  try {
+    await runLiveQuery(params);
   } catch (error) {
     setStatus(error.message, "error");
   } finally {
     submitBtn.disabled = false;
+    loadBtn.disabled = false;
   }
+}
+
+// Auto-load existing results on static hosting.
+if (MODE === "static") {
+  loadStaticResults(false);
 }
