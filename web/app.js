@@ -43,9 +43,9 @@ const MODE = resolveMode();
 const API_URL = resolveApiUrl();
 const DATA_URL = new URL("data/latest.json", window.location.href).href;
 
-const TIMELINE_START = Date.UTC(2024, 3, 14, 0, 0, 0, 0);
+const TIMELINE_DEFAULT_START = "2024-04-14";
 const BASE_PX_PER_DAY = 7;
-const MIN_VIEW_MS = 30 * 60 * 1000;
+const MIN_VIEW_MS = 60 * 60 * 1000;
 const CHILE_TZ = "America/Santiago";
 
 let timelineRecords = [];
@@ -59,6 +59,8 @@ const zoomInBtn = document.getElementById("zoom-in-btn");
 const zoomResetBtn = document.getElementById("zoom-reset-btn");
 const zoomFitBtn = document.getElementById("zoom-fit-btn");
 const zoomRangeLabel = document.getElementById("zoom-range-label");
+const rangeStartInput = document.getElementById("range-start");
+const rangeEndInput = document.getElementById("range-end");
 
 let timelinePanState = null;
 let timelineScrollAnchor = null;
@@ -77,8 +79,6 @@ const legendEl = document.getElementById("legend");
 const tableSection = document.getElementById("table-section");
 const tableBody = document.querySelector("#details-table tbody");
 const submitBtn = document.getElementById("submit-btn");
-const loadBtn = document.getElementById("load-btn");
-const uploadInput = document.getElementById("upload-input");
 const commandPanel = document.getElementById("command-panel");
 const commandText = document.getElementById("command-text");
 const hostingNote = document.getElementById("hosting-note");
@@ -120,29 +120,45 @@ form.addEventListener("submit", async (event) => {
   await runQuery();
 });
 
-loadBtn.addEventListener("click", async () => {
-  await loadStaticResults(true);
-});
-
-uploadInput.addEventListener("change", async (event) => {
-  const file = event.target.files?.[0];
-  if (!file) {
-    return;
-  }
-  try {
-    const text = await file.text();
-    const records = normalizeRecords(JSON.parse(text));
-    displayRecords(records);
-    hideStatus();
-  } catch (error) {
-    setStatus(`Could not read JSON file: ${error.message}`, "error");
-  } finally {
-    uploadInput.value = "";
-  }
-});
-
 initHostingNote();
 initTimelineControls();
+initTimelineRange();
+
+function initTimelineRange() {
+  if (rangeEndInput && !rangeEndInput.value) {
+    rangeEndInput.value = new Date().toISOString().slice(0, 10);
+  }
+  const applyRange = () => {
+    if (timelineRecords.length) {
+      resetTimelineView();
+    }
+  };
+  rangeStartInput?.addEventListener("change", applyRange);
+  rangeEndInput?.addEventListener("change", applyRange);
+}
+
+function parseDateInput(value, endOfDay = false) {
+  if (!value) {
+    return null;
+  }
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) {
+    return null;
+  }
+  if (endOfDay) {
+    return new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+  }
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+}
+
+function formatRangeDate(date) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
 
 function initTimelineControls() {
   zoomOutBtn?.addEventListener("click", () => zoomViewport(1 / 1.2, viewportCenterTime()));
@@ -209,7 +225,7 @@ function viewportCenterTime() {
 function initHostingNote() {
   if (MODE === "static") {
     hostingNote.textContent =
-      "Static hosting: run query.sh on the cluster, then load data/latest.json here.";
+      "Static hosting: run query.sh on the cluster, then click Query to refresh results.";
     hostingNote.classList.remove("hidden");
   } else if (MODE === "server") {
     hostingNote.textContent = "Interactive mode via serve.py.";
@@ -268,9 +284,16 @@ function parseDate(value) {
 }
 
 function getFullBounds() {
-  const min = new Date(TIMELINE_START);
-  const max = new Date();
-  max.setUTCHours(23, 59, 59, 999);
+  const min = parseDateInput(rangeStartInput?.value || TIMELINE_DEFAULT_START)
+    ?? new Date(Date.UTC(2024, 3, 14, 0, 0, 0, 0));
+  let max = parseDateInput(rangeEndInput?.value, true);
+  if (!max) {
+    max = new Date();
+    max.setUTCHours(23, 59, 59, 999);
+  }
+  if (min.getTime() > max.getTime()) {
+    return { min: max, max: min };
+  }
   return { min, max };
 }
 
@@ -379,7 +402,7 @@ function cursorToTime(event, scrollEl) {
 }
 
 function getLabelWidth() {
-  return parseInt(getComputedStyle(document.documentElement).getPropertyValue("--label-width"), 10) || 280;
+  return parseInt(getComputedStyle(document.documentElement).getPropertyValue("--label-width"), 10) || 320;
 }
 
 function refreshTimeline() {
@@ -426,7 +449,7 @@ function resolveTimeScale(spanMs) {
   if (labelMode === "day") {
     return { day: true };
   }
-  return { hour: true, quarterHour: true };
+  return { hour: true };
 }
 
 function showDualTimezone(spanMs) {
@@ -473,10 +496,21 @@ function formatDualTime(date) {
   return `${formatUtc(date)}\n${formatChile(date)}`;
 }
 
-function shortLabel(record) {
-  const dims = record.dimensions.replace(/[{}']/g, "");
-  const collectionTail = record.collection.split("/").slice(-2).join("/");
-  return `${collectionTail} · ${dims}`;
+function buildRowLabel(record) {
+  const label = document.createElement("div");
+  label.className = "row-label";
+  label.title = `${record.collection}\n${record.dimensions}`;
+
+  const collectionLine = document.createElement("span");
+  collectionLine.className = "row-label-collection";
+  collectionLine.textContent = record.collection;
+
+  const dimsLine = document.createElement("span");
+  dimsLine.className = "row-label-dims";
+  dimsLine.textContent = record.dimensions.replace(/[{}']/g, "");
+
+  label.append(collectionLine, document.createElement("br"), dimsLine);
+  return label;
 }
 
 function colorForCollection(collection, colorMap) {
@@ -511,7 +545,7 @@ function eachInterval(bounds, stepMs, alignUtc = true) {
 
 function formatAxisTick(date, zone, scale) {
   const tz = zone === "utc" ? "UTC" : CHILE_TZ;
-  if (scale.hour || scale.quarterHour) {
+  if (scale.hour) {
     return new Intl.DateTimeFormat("en-GB", {
       timeZone: tz,
       day: "2-digit",
@@ -601,11 +635,6 @@ function createGridLayer(bounds, widthPx) {
   const spanMs = bounds.max - bounds.min;
   const scale = resolveTimeScale(spanMs);
 
-  if (scale.quarterHour) {
-    for (const tick of eachInterval(bounds, 15 * 60 * 1000)) {
-      addGridLine(grid, bounds, widthPx, tick, "grid-line-quarter-hour");
-    }
-  }
   if (scale.hour) {
     for (const tick of eachInterval(bounds, 3600000)) {
       addGridLine(grid, bounds, widthPx, tick, "grid-line-hour", formatDualTime(tick));
@@ -704,7 +733,6 @@ function buildDualAxis(bounds, widthPx) {
     addTicks(eachUtcDay(bounds), "day", 88);
   } else {
     addTicks(eachInterval(bounds, 3600000), "hour", 110);
-    addTicks(eachInterval(bounds, 15 * 60 * 1000), "quarter-hour", 72);
   }
 
   const full = getFullBounds();
@@ -745,6 +773,18 @@ function appendValidityMarker(track, date, bounds, widthPx, kind, spanMs) {
   }).format(date);
   marker.appendChild(label);
   track.appendChild(marker);
+}
+
+function buildLabelHeader() {
+  const row = document.createElement("div");
+  row.className = "timeline-row timeline-label-header-row";
+  const header = document.createElement("div");
+  header.className = "row-label-header";
+  header.textContent = "Collection";
+  const spacer = document.createElement("div");
+  spacer.className = "timeline-track-wrap";
+  row.append(header, spacer);
+  return row;
 }
 
 function buildLegend(records, colorMap) {
@@ -817,6 +857,7 @@ function renderTimeline(records) {
   inner.dataset.timelineWidth = String(widthPx);
 
   inner.appendChild(buildDualAxis(bounds, widthPx));
+  inner.appendChild(buildLabelHeader());
 
   const sorted = [...records].sort((a, b) => {
     const aStart = parseDate(a.validity_start)?.getTime() ?? 0;
@@ -842,10 +883,7 @@ function renderTimeline(records) {
     const row = document.createElement("div");
     row.className = "timeline-row";
 
-    const label = document.createElement("div");
-    label.className = "row-label";
-    label.textContent = shortLabel(record);
-    label.title = `${record.collection}\n${record.dimensions}`;
+    const label = buildRowLabel(record);
 
     const trackWrap = document.createElement("div");
     trackWrap.className = "timeline-track-wrap";
@@ -926,12 +964,13 @@ function renderTable(records) {
 function renderSummary(records) {
   const collections = new Set(records.map((r) => r.collection));
   const types = new Set(records.map((r) => r.dataset_type));
+  const full = getFullBounds();
 
   summaryEl.innerHTML = `
     <div class="stat-chip"><strong>${records.length}</strong> calibration${records.length === 1 ? "" : "s"}</div>
     <div class="stat-chip"><strong>${collections.size}</strong> collection${collections.size === 1 ? "" : "s"}</div>
     <div class="stat-chip"><strong>${types.size}</strong> dataset type${types.size === 1 ? "" : "s"}</div>
-    <div class="stat-chip">Timeline: <strong>14 Apr 2024</strong> → <strong>today</strong> · zoom in for times of day</div>
+    <div class="stat-chip">Timeline: <strong>${formatRangeDate(full.min)}</strong> → <strong>${formatRangeDate(full.max)}</strong></div>
   `;
   summaryEl.classList.remove("hidden");
 }
@@ -991,7 +1030,6 @@ function displayRecords(records) {
 
 async function loadStaticResults(showErrors) {
   submitBtn.disabled = true;
-  loadBtn.disabled = true;
   setStatus("Loading data/latest.json…", "loading");
 
   try {
@@ -1011,7 +1049,6 @@ async function loadStaticResults(showErrors) {
     }
   } finally {
     submitBtn.disabled = false;
-    loadBtn.disabled = false;
   }
 }
 
@@ -1036,20 +1073,19 @@ async function runQuery() {
   }
 
   submitBtn.disabled = true;
-  loadBtn.disabled = true;
   timelineSection.classList.add("hidden");
   tableSection.classList.add("hidden");
   summaryEl.classList.add("hidden");
 
   if (MODE === "static") {
     showCommand(params);
-    setStatus("Run the command below on the cluster, then click Load results.", "loading");
+    setStatus("Run the command below on the cluster, then click Query again to refresh.", "loading");
     await loadStaticResults(false);
     if (statusEl.classList.contains("hidden")) {
+      submitBtn.disabled = false;
       return;
     }
     submitBtn.disabled = false;
-    loadBtn.disabled = false;
     return;
   }
 
@@ -1062,7 +1098,6 @@ async function runQuery() {
     setStatus(error.message, "error");
   } finally {
     submitBtn.disabled = false;
-    loadBtn.disabled = false;
   }
 }
 

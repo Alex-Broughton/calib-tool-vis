@@ -44,28 +44,13 @@
                  placeholder="e.g. electroBfDistortionMatrix">
           <p class="field-hint">Required when using a WHERE filter.</p>
         </div>
-        <div class="field field-wide">
+        <div class="field">
           <label for="where">Where <span class="optional">(optional)</span></label>
-          <textarea id="where" name="where" rows="2" spellcheck="false"
-                    placeholder="instrument = 'LSSTCam' AND detector = 204"></textarea>
-          <p class="field-hint">
-            Butler SQL WHERE expression, as in
-            <code>butler query-datasets --where</code>.
-            Use spaces around <code>=</code>, quote strings, and combine clauses with
-            <code>AND</code>/<code>OR</code>.
-          </p>
+          <input id="where" name="where" type="text"
+                 placeholder="instrument = 'LSSTCam' AND detector = 204">
         </div>
         <div class="field field-action">
           <button type="submit" id="submit-btn">Query</button>
-        </div>
-        <div class="field field-action">
-          <button type="button" id="load-btn" class="secondary">Load results</button>
-        </div>
-        <div class="field field-action">
-          <label class="upload-btn secondary">
-            Upload JSON
-            <input id="upload-input" type="file" accept=".json,application/json" hidden>
-          </label>
         </div>
       </form>
     </section>
@@ -74,7 +59,7 @@
       <h2>Run on the cluster</h2>
       <p class="command-help">
         S3DF <code>public_html</code> serves static files only — Butler queries must run on a cluster node.
-        Copy and run this command, then click <strong>Load results</strong>.
+        Copy and run this command, then click <strong>Query</strong> again to refresh results.
       </p>
       <pre id="command-text" class="command-text"></pre>
     </section>
@@ -97,12 +82,24 @@
         <span class="grid-legend-item"><span style="color:#7dd3fc">●</span> UTC</span>
         <span class="grid-legend-item"><span style="color:#86efac">●</span> Chile (America/Santiago)</span>
       </div>
-      <div class="timeline-controls">
-        <button type="button" id="zoom-out-btn" class="secondary" title="Zoom out">−</button>
-        <button type="button" id="zoom-in-btn" class="secondary" title="Zoom in">+</button>
-        <button type="button" id="zoom-reset-btn" class="secondary">Reset view</button>
-        <button type="button" id="zoom-fit-btn" class="secondary">Fit data</button>
-        <span id="zoom-range-label" class="zoom-range-label"></span>
+      <div class="timeline-toolbar">
+        <div class="timeline-range-fields">
+          <label for="range-start">From
+            <input id="range-start" type="date" value="2024-04-14">
+          </label>
+          <label for="range-end">To
+            <input id="range-end" type="date">
+          </label>
+        </div>
+        <div class="timeline-controls">
+          <div class="zoom-btn-group" role="group" aria-label="Zoom">
+            <button type="button" id="zoom-out-btn" title="Zoom out" aria-label="Zoom out">−</button>
+            <button type="button" id="zoom-in-btn" title="Zoom in" aria-label="Zoom in">+</button>
+          </div>
+          <button type="button" id="zoom-reset-btn" class="btn-outline">Reset view</button>
+          <button type="button" id="zoom-fit-btn" class="btn-outline">Fit data</button>
+          <span id="zoom-range-label" class="zoom-range-label"></span>
+        </div>
       </div>
       <p class="timeline-hint">Click and drag left/right to pan · Ctrl/⌘ + wheel to zoom</p>
       <div id="timeline" class="timeline"></div>
