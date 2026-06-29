@@ -29,6 +29,8 @@ class CalibrationRecord:
 
 
 def _timespan_to_record_fields(timespan) -> tuple[Optional[str], Optional[str], str]:
+    if timespan is None:
+        return None, None, "(no validity range)"
     begin = timespan.begin.isoformat() if timespan.begin is not None else None
     end = timespan.end.isoformat() if timespan.end is not None else None
     return begin, end, str(timespan)
