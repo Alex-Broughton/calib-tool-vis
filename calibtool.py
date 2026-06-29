@@ -28,11 +28,21 @@ class CalibrationRecord:
         )
 
 
+def _format_time(value) -> Optional[str]:
+    if value is None:
+        return None
+    if hasattr(value, "isot"):
+        return value.isot
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 def _timespan_to_record_fields(timespan) -> tuple[Optional[str], Optional[str], str]:
     if timespan is None:
         return None, None, "(no validity range)"
-    begin = timespan.begin.isoformat() if timespan.begin is not None else None
-    end = timespan.end.isoformat() if timespan.end is not None else None
+    begin = _format_time(timespan.begin)
+    end = _format_time(timespan.end)
     return begin, end, str(timespan)
 
 
