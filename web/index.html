@@ -42,14 +42,29 @@
           <label for="dataset_type">Dataset type</label>
           <input id="dataset_type" name="dataset_type" type="text"
                  placeholder="e.g. electroBfDistortionMatrix">
-          <p class="field-hint">Required when using a WHERE filter.</p>
         </div>
         <div class="field">
           <label for="where">Where <span class="optional">(optional)</span></label>
           <input id="where" name="where" type="text"
                  placeholder="instrument = 'LSSTCam' AND detector = 204">
         </div>
-        <div class="field field-action">
+        <div class="field field-range">
+          <label>Timeline from <span class="optional">(UTC)</span></label>
+          <div class="date-dropdowns">
+            <select id="range_start_day" name="range_start_day" aria-label="Start day"></select>
+            <select id="range_start_month" name="range_start_month" aria-label="Start month"></select>
+            <select id="range_start_year" name="range_start_year" aria-label="Start year"></select>
+          </div>
+        </div>
+        <div class="field field-range">
+          <label>Timeline to <span class="optional">(UTC)</span></label>
+          <div class="date-dropdowns">
+            <select id="range_end_day" name="range_end_day" aria-label="End day"></select>
+            <select id="range_end_month" name="range_end_month" aria-label="End month"></select>
+            <select id="range_end_year" name="range_end_year" aria-label="End year"></select>
+          </div>
+        </div>
+        <div class="field field-action field-action-full">
           <button type="submit" id="submit-btn">Query</button>
         </div>
       </form>
@@ -83,14 +98,6 @@
         <span class="grid-legend-item"><span style="color:#86efac">●</span> Chile (America/Santiago)</span>
       </div>
       <div class="timeline-toolbar">
-        <div class="timeline-range-fields">
-          <label for="range-start">From
-            <input id="range-start" type="date" value="2024-04-14">
-          </label>
-          <label for="range-end">To
-            <input id="range-end" type="date">
-          </label>
-        </div>
         <div class="timeline-controls">
           <div class="zoom-btn-group" role="group" aria-label="Zoom">
             <button type="button" id="zoom-out-btn" title="Zoom out" aria-label="Zoom out">−</button>

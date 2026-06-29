@@ -43,12 +43,18 @@ const MODE = resolveMode();
 const API_URL = resolveApiUrl();
 const DATA_URL = new URL("data/latest.json", window.location.href).href;
 
-const TIMELINE_DEFAULT_START = "2024-04-14";
+const TIMELINE_DEFAULT_START = new Date(Date.UTC(2024, 3, 14, 0, 0, 0, 0));
 const BASE_PX_PER_DAY = 7;
 const MIN_VIEW_MS = 60 * 60 * 1000;
 const CHILE_TZ = "America/Santiago";
 
+const MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
 let timelineRecords = [];
+let timelineRangeBounds = null;
 const timelineView = {
   start: null,
   end: null,
@@ -59,8 +65,6 @@ const zoomInBtn = document.getElementById("zoom-in-btn");
 const zoomResetBtn = document.getElementById("zoom-reset-btn");
 const zoomFitBtn = document.getElementById("zoom-fit-btn");
 const zoomRangeLabel = document.getElementById("zoom-range-label");
-const rangeStartInput = document.getElementById("range-start");
-const rangeEndInput = document.getElementById("range-end");
 
 let timelinePanState = null;
 let timelineScrollAnchor = null;
@@ -122,33 +126,86 @@ form.addEventListener("submit", async (event) => {
 
 initHostingNote();
 initTimelineControls();
-initTimelineRange();
+initQueryDateDropdowns();
 
-function initTimelineRange() {
-  if (rangeEndInput && !rangeEndInput.value) {
-    rangeEndInput.value = new Date().toISOString().slice(0, 10);
-  }
-  const applyRange = () => {
-    if (timelineRecords.length) {
-      resetTimelineView();
-    }
-  };
-  rangeStartInput?.addEventListener("change", applyRange);
-  rangeEndInput?.addEventListener("change", applyRange);
+function daysInUtcMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-function parseDateInput(value, endOfDay = false) {
-  if (!value) {
-    return null;
+function fillSelect(select, options, selected) {
+  select.innerHTML = "";
+  for (const { value, label } of options) {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = label;
+    if (value === selected) {
+      option.selected = true;
+    }
+    select.appendChild(option);
   }
-  const [year, month, day] = value.split("-").map(Number);
-  if (!year || !month || !day) {
-    return null;
+}
+
+function initDateDropdownGroup(prefix, defaultDate) {
+  const daySelect = document.getElementById(`${prefix}_day`);
+  const monthSelect = document.getElementById(`${prefix}_month`);
+  const yearSelect = document.getElementById(`${prefix}_year`);
+  if (!daySelect || !monthSelect || !yearSelect) {
+    return;
   }
+
+  const currentYear = new Date().getUTCFullYear();
+  fillSelect(
+    yearSelect,
+    Array.from({ length: currentYear - 2019 }, (_, index) => {
+      const year = currentYear - index;
+      return { value: year, label: String(year) };
+    }),
+    defaultDate.getUTCFullYear(),
+  );
+  fillSelect(
+    monthSelect,
+    MONTH_LABELS.map((label, index) => ({ value: index + 1, label })),
+    defaultDate.getUTCMonth() + 1,
+  );
+  fillSelect(
+    daySelect,
+    Array.from({ length: 31 }, (_, index) => {
+      const day = index + 1;
+      return { value: day, label: String(day).padStart(2, "0") };
+    }),
+    defaultDate.getUTCDate(),
+  );
+}
+
+function initQueryDateDropdowns() {
+  initDateDropdownGroup("range_start", TIMELINE_DEFAULT_START);
+  initDateDropdownGroup("range_end", new Date());
+}
+
+function dateFromDropdowns(prefix, endOfDay = false) {
+  const day = Number(document.getElementById(`${prefix}_day`)?.value);
+  const month = Number(document.getElementById(`${prefix}_month`)?.value);
+  const year = Number(document.getElementById(`${prefix}_year`)?.value);
+  const safeDay = Math.min(day, daysInUtcMonth(year, month));
   if (endOfDay) {
-    return new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+    return new Date(Date.UTC(year, month - 1, safeDay, 23, 59, 59, 999));
   }
-  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  return new Date(Date.UTC(year, month - 1, safeDay, 0, 0, 0, 0));
+}
+
+function readTimelineRangeFromForm() {
+  const min = dateFromDropdowns("range_start");
+  const max = dateFromDropdowns("range_end", true);
+  if (min.getTime() > max.getTime()) {
+    return { error: "Timeline start must be on or before the end date." };
+  }
+  return { min, max };
+}
+
+function getDefaultFullBounds() {
+  const max = new Date();
+  max.setUTCHours(23, 59, 59, 999);
+  return { min: new Date(TIMELINE_DEFAULT_START), max };
 }
 
 function formatRangeDate(date) {
@@ -284,17 +341,13 @@ function parseDate(value) {
 }
 
 function getFullBounds() {
-  const min = parseDateInput(rangeStartInput?.value || TIMELINE_DEFAULT_START)
-    ?? new Date(Date.UTC(2024, 3, 14, 0, 0, 0, 0));
-  let max = parseDateInput(rangeEndInput?.value, true);
-  if (!max) {
-    max = new Date();
-    max.setUTCHours(23, 59, 59, 999);
+  if (timelineRangeBounds) {
+    return {
+      min: new Date(timelineRangeBounds.min),
+      max: new Date(timelineRangeBounds.max),
+    };
   }
-  if (min.getTime() > max.getTime()) {
-    return { min: max, max: min };
-  }
-  return { min, max };
+  return getDefaultFullBounds();
 }
 
 function initTimelineView(bounds = getFullBounds()) {
@@ -1071,6 +1124,13 @@ async function runQuery() {
     setStatus(whereError, "error");
     return;
   }
+
+  const rangeResult = readTimelineRangeFromForm();
+  if (rangeResult.error) {
+    setStatus(rangeResult.error, "error");
+    return;
+  }
+  timelineRangeBounds = rangeResult;
 
   submitBtn.disabled = true;
   timelineSection.classList.add("hidden");
