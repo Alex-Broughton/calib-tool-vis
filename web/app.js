@@ -58,8 +58,10 @@ const zoomOutBtn = document.getElementById("zoom-out-btn");
 const zoomInBtn = document.getElementById("zoom-in-btn");
 const zoomResetBtn = document.getElementById("zoom-reset-btn");
 const zoomFitBtn = document.getElementById("zoom-fit-btn");
-const zoomSlider = document.getElementById("zoom-slider");
 const zoomRangeLabel = document.getElementById("zoom-range-label");
+
+let timelinePanState = null;
+let timelineScrollAnchor = null;
 
 const PALETTE = [
   "#38bdf8", "#34d399", "#a78bfa", "#fb7185",
@@ -143,25 +145,56 @@ initHostingNote();
 initTimelineControls();
 
 function initTimelineControls() {
-  zoomOutBtn?.addEventListener("click", () => zoomViewport(1 / 1.25));
-  zoomInBtn?.addEventListener("click", () => zoomViewport(1.25));
+  zoomOutBtn?.addEventListener("click", () => zoomViewport(1 / 1.2, viewportCenterTime()));
+  zoomInBtn?.addEventListener("click", () => zoomViewport(1.2, viewportCenterTime()));
   zoomResetBtn?.addEventListener("click", () => resetTimelineView());
   zoomFitBtn?.addEventListener("click", () => fitTimelineToData());
-  zoomSlider?.addEventListener("input", () => applyZoomSlider(Number(zoomSlider.value)));
 
   timelineEl.addEventListener("wheel", (event) => {
-    if (!timelineRecords.length) {
+    if (!timelineRecords.length || !(event.ctrlKey || event.metaKey)) {
       return;
     }
     event.preventDefault();
-    if (event.shiftKey) {
-      panViewport(event.deltaY > 0 ? 1 : -1, 0.08);
+    const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+    zoomViewport(factor, cursorToTime(event, timelineEl));
+  }, { passive: false });
+
+  timelineEl.addEventListener("mousedown", (event) => {
+    if (!timelineRecords.length || event.button !== 0) {
       return;
     }
-    const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const anchorMs = cursorToTime(event, timelineEl);
-    zoomViewport(factor, anchorMs);
-  }, { passive: false });
+    timelinePanState = {
+      startX: event.clientX,
+      scrollLeft: timelineEl.scrollLeft,
+    };
+    timelineEl.classList.add("is-panning");
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!timelinePanState) {
+      return;
+    }
+    event.preventDefault();
+    const delta = event.clientX - timelinePanState.startX;
+    timelineEl.scrollLeft = timelinePanState.scrollLeft - delta;
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!timelinePanState) {
+      return;
+    }
+    timelinePanState = null;
+    timelineEl.classList.remove("is-panning");
+  });
+}
+
+function viewportCenterTime() {
+  const view = getViewBounds();
+  const widthPx = computeTimelineWidth(view);
+  const span = view.max.getTime() - view.min.getTime();
+  const centerX = timelineEl.scrollLeft + timelineEl.clientWidth / 2 - getLabelWidth();
+  const ratio = Math.min(1, Math.max(0, centerX / widthPx));
+  return view.min.getTime() + ratio * span;
 }
 
 function initHostingNote() {
@@ -264,61 +297,26 @@ function clampTimelineView() {
   }
 }
 
-function zoomSliderToSpan(sliderValue) {
-  const fullSpan = getFullSpanMs();
-  const ratio = sliderValue / 100;
-  return fullSpan * Math.pow(MIN_VIEW_MS / fullSpan, ratio);
-}
-
-function spanToZoomSlider(spanMs) {
-  const fullSpan = getFullSpanMs();
-  if (spanMs >= fullSpan) {
-    return 0;
-  }
-  const ratio = Math.log(spanMs / fullSpan) / Math.log(MIN_VIEW_MS / fullSpan);
-  return Math.min(100, Math.max(0, Math.round(ratio * 100)));
-}
-
-function applyZoomSlider(value) {
-  const full = getFullBounds();
-  const span = zoomSliderToSpan(value);
-  const center = (timelineView.start.getTime() + timelineView.end.getTime()) / 2;
-  timelineView.start = new Date(center - span / 2);
-  timelineView.end = new Date(center + span / 2);
-  clampTimelineView();
-  refreshTimeline();
-}
-
 function zoomViewport(factor, anchorMs = null) {
   const view = getViewBounds();
   const span = view.max.getTime() - view.min.getTime();
+  const widthPx = computeTimelineWidth(view);
+  const anchor = anchorMs ?? viewportCenterTime();
+  const anchorPx = getLabelWidth() + ((anchor - view.min.getTime()) / span) * widthPx;
+  const anchorScreenX = anchorPx - timelineEl.scrollLeft;
+
   const newSpan = Math.min(getFullSpanMs(), Math.max(MIN_VIEW_MS, span / factor));
-  const anchor = anchorMs ?? (view.min.getTime() + span / 2);
   const anchorRatio = (anchor - view.min.getTime()) / span;
   timelineView.start = new Date(anchor - newSpan * anchorRatio);
   timelineView.end = new Date(anchor + newSpan * (1 - anchorRatio));
   clampTimelineView();
-  if (zoomSlider) {
-    zoomSlider.value = String(spanToZoomSlider(newSpan));
-  }
-  refreshTimeline();
-}
-
-function panViewport(direction, fraction = 0.1) {
-  const view = getViewBounds();
-  const span = view.max.getTime() - view.min.getTime();
-  const delta = span * fraction * direction;
-  timelineView.start = new Date(view.min.getTime() + delta);
-  timelineView.end = new Date(view.max.getTime() + delta);
-  clampTimelineView();
+  timelineScrollAnchor = { anchorMs: anchor, anchorScreenX };
   refreshTimeline();
 }
 
 function resetTimelineView() {
+  timelineScrollAnchor = null;
   initTimelineView();
-  if (zoomSlider) {
-    zoomSlider.value = "0";
-  }
   refreshTimeline();
 }
 
@@ -346,9 +344,7 @@ function fitTimelineToData() {
   timelineView.start = new Date(min.getTime() - pad);
   timelineView.end = new Date((max ?? getFullBounds().max).getTime() + pad);
   clampTimelineView();
-  if (zoomSlider) {
-    zoomSlider.value = String(spanToZoomSlider(getViewSpanMs()));
-  }
+  timelineScrollAnchor = null;
   refreshTimeline();
 }
 
@@ -376,11 +372,48 @@ function updateZoomRangeLabel(viewBounds) {
     return;
   }
   const spanMs = viewBounds.max - viewBounds.min;
-  const scale = resolveTimeScale(spanMs);
-  const startLabel = formatAxisTick(viewBounds.min, "utc", scale);
-  const endLabel = formatAxisTick(viewBounds.max, "utc", scale);
-  const zoomPct = Math.round((getFullSpanMs() / spanMs) * 10) / 10;
-  zoomRangeLabel.textContent = `${startLabel} → ${endLabel} · ${zoomPct}× zoom`;
+  const labelMode = resolveLabelMode(spanMs);
+  const startLabel = formatAxisTick(viewBounds.min, "utc", { day: true });
+  const endLabel = formatAxisTick(viewBounds.max, "utc", { day: true });
+  const modeHint = labelMode === "fine"
+    ? " · showing times of day"
+    : " · zoom in further for times of day";
+  zoomRangeLabel.textContent = `${startLabel} → ${endLabel}${modeHint}`;
+}
+
+function resolveLabelMode(spanMs) {
+  if (spanMs > 60 * msPerDay()) {
+    return "coarse";
+  }
+  if (spanMs > 10 * msPerDay()) {
+    return "medium";
+  }
+  if (spanMs > msPerDay()) {
+    return "day";
+  }
+  return "fine";
+}
+
+function resolveTimeScale(spanMs) {
+  const labelMode = resolveLabelMode(spanMs);
+  if (labelMode === "coarse") {
+    return { year: true, month: true };
+  }
+  if (labelMode === "medium") {
+    return { month: true, day: true };
+  }
+  if (labelMode === "day") {
+    return { day: true };
+  }
+  return { hour: true, quarterHour: true };
+}
+
+function showDualTimezone(spanMs) {
+  return resolveLabelMode(spanMs) === "fine";
+}
+
+function showTimeLabels(spanMs) {
+  return resolveLabelMode(spanMs) === "fine";
 }
 
 function msPerDay() {
@@ -432,28 +465,6 @@ function colorForCollection(collection, colorMap) {
   return colorMap.get(collection);
 }
 
-function resolveTimeScale(spanMs) {
-  if (spanMs > 400 * msPerDay()) {
-    return { year: true, month: true, day: true };
-  }
-  if (spanMs > 90 * msPerDay()) {
-    return { month: true, day: true };
-  }
-  if (spanMs > 14 * msPerDay()) {
-    return { day: true, sixHour: true };
-  }
-  if (spanMs > 2 * msPerDay()) {
-    return { day: true, hour: true };
-  }
-  if (spanMs > 6 * 3600000) {
-    return { hour: true, sixHour: true };
-  }
-  if (spanMs > 2 * 3600000) {
-    return { hour: true, quarterHour: true };
-  }
-  return { hour: true, minute: true, quarterHour: true };
-}
-
 function eachInterval(bounds, stepMs, alignUtc = true) {
   const items = [];
   let t = bounds.min.getTime();
@@ -479,17 +490,7 @@ function eachInterval(bounds, stepMs, alignUtc = true) {
 
 function formatAxisTick(date, zone, scale) {
   const tz = zone === "utc" ? "UTC" : CHILE_TZ;
-  if (scale.minute || scale.quarterHour) {
-    return new Intl.DateTimeFormat("en-GB", {
-      timeZone: tz,
-      day: "2-digit",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(date);
-  }
-  if (scale.hour || scale.sixHour) {
+  if (scale.hour || scale.quarterHour) {
     return new Intl.DateTimeFormat("en-GB", {
       timeZone: tz,
       day: "2-digit",
@@ -579,12 +580,7 @@ function createGridLayer(bounds, widthPx) {
   const spanMs = bounds.max - bounds.min;
   const scale = resolveTimeScale(spanMs);
 
-  if (scale.minute) {
-    for (const tick of eachInterval(bounds, 15 * 60 * 1000)) {
-      addGridLine(grid, bounds, widthPx, tick, "grid-line-minute");
-    }
-  }
-  if (scale.quarterHour && !scale.minute) {
+  if (scale.quarterHour) {
     for (const tick of eachInterval(bounds, 15 * 60 * 1000)) {
       addGridLine(grid, bounds, widthPx, tick, "grid-line-quarter-hour");
     }
@@ -592,11 +588,6 @@ function createGridLayer(bounds, widthPx) {
   if (scale.hour) {
     for (const tick of eachInterval(bounds, 3600000)) {
       addGridLine(grid, bounds, widthPx, tick, "grid-line-hour", formatDualTime(tick));
-    }
-  }
-  if (scale.sixHour) {
-    for (const tick of eachInterval(bounds, 6 * 3600000)) {
-      addGridLine(grid, bounds, widthPx, tick, "grid-line-six-hour", formatDualTime(tick));
     }
   }
   if (scale.day) {
@@ -646,16 +637,20 @@ function subsampleTicks(dates, bounds, widthPx, minPx = 72) {
 
 function buildDualAxis(bounds, widthPx) {
   const spanMs = bounds.max - bounds.min;
+  const labelMode = resolveLabelMode(spanMs);
   const scale = resolveTimeScale(spanMs);
+  const dualTz = showDualTimezone(spanMs);
   const axisBlock = document.createElement("div");
   axisBlock.className = "timeline-axis-block";
-  if (scale.hour || scale.minute) {
+  if (dualTz) {
     axisBlock.classList.add("timeline-axis-fine");
   }
 
   const side = document.createElement("div");
   side.className = "axis-side";
-  side.innerHTML = `<span class="axis-side-label">UTC</span><span class="axis-side-label">Chile</span>`;
+  side.innerHTML = dualTz
+    ? `<span class="axis-side-label">UTC</span><span class="axis-side-label">Chile</span>`
+    : `<span class="axis-side-label">Dates (UTC)</span>`;
 
   const trackWrap = document.createElement("div");
   trackWrap.className = "timeline-track-wrap";
@@ -665,37 +660,30 @@ function buildDualAxis(bounds, widthPx) {
   utcRow.className = "axis-row axis-row-utc";
   const chileRow = document.createElement("div");
   chileRow.className = "axis-row axis-row-chile";
+  if (!dualTz) {
+    chileRow.classList.add("hidden");
+  }
 
-  const addTicks = (dates, kind) => {
-    for (const date of dates) {
+  const addTicks = (dates, kind, minPx) => {
+    for (const date of subsampleTicks(dates, bounds, widthPx, minPx)) {
       utcRow.appendChild(createAxisLabel(date, bounds, widthPx, kind, "utc", scale));
-      chileRow.appendChild(createAxisLabel(date, bounds, widthPx, kind, "chile", scale));
+      if (dualTz) {
+        chileRow.appendChild(createAxisLabel(date, bounds, widthPx, kind, "chile", scale));
+      }
     }
   };
 
-  utcRow.appendChild(createAxisLabel(bounds.min, bounds, widthPx, "edge", "utc", scale));
-  chileRow.appendChild(createAxisLabel(bounds.min, bounds, widthPx, "edge", "chile", scale));
-
-  if (scale.year) {
-    addTicks(eachUtcYearStart(bounds), "year");
-  }
-  if (scale.month) {
-    addTicks(eachUtcMonthStart(bounds), "month");
-  }
-  if (scale.day) {
-    addTicks(eachUtcDay(bounds), "day");
-  }
-  if (scale.sixHour) {
-    addTicks(subsampleTicks(eachInterval(bounds, 6 * 3600000), bounds, widthPx), "six-hour");
-  }
-  if (scale.hour) {
-    addTicks(subsampleTicks(eachInterval(bounds, 3600000), bounds, widthPx), "hour");
-  }
-  if (scale.quarterHour) {
-    addTicks(subsampleTicks(eachInterval(bounds, 15 * 60 * 1000), bounds, widthPx), "quarter-hour");
-  }
-  if (scale.minute) {
-    addTicks(subsampleTicks(eachInterval(bounds, 15 * 60 * 1000), bounds, widthPx, 48), "minute");
+  if (labelMode === "coarse") {
+    addTicks(eachUtcYearStart(bounds), "year", 160);
+    addTicks(eachUtcMonthStart(bounds), "month", 130);
+  } else if (labelMode === "medium") {
+    addTicks(eachUtcMonthStart(bounds), "month", 120);
+    addTicks(eachUtcDay(bounds), "day", 100);
+  } else if (labelMode === "day") {
+    addTicks(eachUtcDay(bounds), "day", 88);
+  } else {
+    addTicks(eachInterval(bounds, 3600000), "hour", 110);
+    addTicks(eachInterval(bounds, 15 * 60 * 1000), "quarter-hour", 72);
   }
 
   const full = getFullBounds();
@@ -703,23 +691,22 @@ function buildDualAxis(bounds, widthPx) {
     const todayUtc = createAxisLabel(full.max, bounds, widthPx, "today", "utc", scale);
     todayUtc.classList.add("axis-tick-today");
     todayUtc.textContent = "Today";
-    const todayChile = createAxisLabel(full.max, bounds, widthPx, "today", "chile", scale);
-    todayChile.classList.add("axis-tick-today");
-    todayChile.textContent = "Today";
     utcRow.appendChild(todayUtc);
-    chileRow.appendChild(todayChile);
+    if (dualTz) {
+      const todayChile = createAxisLabel(full.max, bounds, widthPx, "today", "chile", scale);
+      todayChile.classList.add("axis-tick-today");
+      todayChile.textContent = "Today";
+      chileRow.appendChild(todayChile);
+    }
   }
-
-  utcRow.appendChild(createAxisLabel(bounds.max, bounds, widthPx, "edge", "utc", scale));
-  chileRow.appendChild(createAxisLabel(bounds.max, bounds, widthPx, "edge", "chile", scale));
 
   trackWrap.append(utcRow, chileRow);
   axisBlock.append(side, trackWrap);
   return axisBlock;
 }
 
-function appendValidityMarker(track, date, bounds, widthPx, kind, scale) {
-  if (!date || !scale.hour) {
+function appendValidityMarker(track, date, bounds, widthPx, kind, spanMs) {
+  if (!date || !showTimeLabels(spanMs)) {
     return;
   }
   const marker = document.createElement("div");
@@ -873,10 +860,10 @@ function renderTimeline(records) {
     bar.title = buildBarTooltip(record);
 
     if (rawStart >= bounds.min && rawStart <= bounds.max) {
-      appendValidityMarker(track, rawStart, bounds, widthPx, "start", scale);
+      appendValidityMarker(track, rawStart, bounds, widthPx, "start", spanMs);
     }
     if (!openEnded && rawEnd >= bounds.min && rawEnd <= bounds.max) {
-      appendValidityMarker(track, rawEnd, bounds, widthPx, "end", scale);
+      appendValidityMarker(track, rawEnd, bounds, widthPx, "end", spanMs);
     }
 
     track.appendChild(bar);
@@ -888,6 +875,16 @@ function renderTimeline(records) {
   body.appendChild(rowsContainer);
   inner.appendChild(body);
   timelineEl.appendChild(inner);
+
+  if (timelineScrollAnchor) {
+    const newView = getViewBounds();
+    const newWidth = computeTimelineWidth(newView);
+    const newSpan = newView.max.getTime() - newView.min.getTime();
+    const anchorPx = getLabelWidth()
+      + ((timelineScrollAnchor.anchorMs - newView.min.getTime()) / newSpan) * newWidth;
+    timelineEl.scrollLeft = Math.max(0, anchorPx - timelineScrollAnchor.anchorScreenX);
+    timelineScrollAnchor = null;
+  }
 }
 
 function renderTable(records) {
@@ -913,7 +910,7 @@ function renderSummary(records) {
     <div class="stat-chip"><strong>${records.length}</strong> calibration${records.length === 1 ? "" : "s"}</div>
     <div class="stat-chip"><strong>${collections.size}</strong> collection${collections.size === 1 ? "" : "s"}</div>
     <div class="stat-chip"><strong>${types.size}</strong> dataset type${types.size === 1 ? "" : "s"}</div>
-    <div class="stat-chip">Timeline: <strong>14 Apr 2024</strong> → <strong>today</strong> (zoom to inspect times)</div>
+    <div class="stat-chip">Timeline: <strong>14 Apr 2024</strong> → <strong>today</strong> · zoom in for times of day</div>
   `;
   summaryEl.classList.remove("hidden");
 }
@@ -964,9 +961,7 @@ function displayRecords(records) {
   renderSummary(records);
   timelineRecords = records;
   initTimelineView();
-  if (zoomSlider) {
-    zoomSlider.value = "0";
-  }
+  timelineScrollAnchor = null;
   renderTimeline(records);
   renderTable(records);
   timelineSection.classList.remove("hidden");
