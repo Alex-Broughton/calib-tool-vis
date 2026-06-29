@@ -41,8 +41,8 @@ def _matching_data_ids(
     dataset_type_name: str,
     collections: str,
     where: str,
-) -> set[tuple[tuple[str, Any], ...]]:
-    """Return a set of dataId key tuples that satisfy the where expression."""
+) -> set[tuple[Any, ...]]:
+    """Return a set of dataId keys that satisfy the where expression."""
     refs = butler.query_datasets(
         dataset_type_name,
         collections=collections,
@@ -52,8 +52,13 @@ def _matching_data_ids(
     return {_data_id_key(ref.dataId) for ref in refs}
 
 
-def _data_id_key(data_id) -> tuple[tuple[str, Any], ...]:
-    return tuple(sorted(data_id.items()))
+def _data_id_key(data_id) -> tuple[Any, ...]:
+    required = getattr(data_id, "required", None)
+    if required is not None:
+        return tuple(sorted(required.items()))
+    if hasattr(data_id, "items"):
+        return tuple(sorted(data_id.items()))
+    raise TypeError(f"Cannot build key for data ID of type {type(data_id)!r}")
 
 
 def iter_calibrations(
@@ -71,7 +76,7 @@ def iter_calibrations(
         ]
 
     for dt in dataset_types:
-        allowed_data_ids: Optional[set[tuple[tuple[str, Any], ...]]] = None
+        allowed_data_ids: Optional[set[tuple[Any, ...]]] = None
         if where:
             allowed_data_ids = _matching_data_ids(butler, dt.name, collections, where)
 
