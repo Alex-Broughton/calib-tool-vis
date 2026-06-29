@@ -2,7 +2,21 @@
  * Calibration timeline visualization.
  */
 
-const API_URL = "../cgi-bin/calib_api.py";
+function resolveApiUrl() {
+  const override = document.querySelector('meta[name="calib-api-url"]')?.content?.trim();
+  if (override) {
+    return override;
+  }
+
+  const userMatch = window.location.pathname.match(/^\/~[^/]+/);
+  if (userMatch) {
+    return `${window.location.origin}${userMatch[0]}/cgi-bin/calib_api.cgi`;
+  }
+
+  return new URL("cgi-bin/calib_api.cgi", window.location.href).href;
+}
+
+const API_URL = resolveApiUrl();
 
 const PALETTE = [
   "#38bdf8", "#34d399", "#a78bfa", "#fb7185",
@@ -226,6 +240,20 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
+async function readJsonResponse(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 180);
+    throw new Error(
+      `API returned HTML instead of JSON (${response.status}). ` +
+      `Check that ${API_URL} exists and is executable. ` +
+      `Response: ${snippet || "(empty)"}`
+    );
+  }
+}
+
 async function runQuery() {
   const params = new URLSearchParams(new FormData(form));
   submitBtn.disabled = true;
@@ -236,10 +264,11 @@ async function runQuery() {
 
   try {
     const response = await fetch(`${API_URL}?${params.toString()}`);
-    const payload = await response.json();
+    const payload = await readJsonResponse(response);
 
     if (!response.ok || payload.error) {
-      throw new Error(payload.error || `Request failed (${response.status})`);
+      const detail = payload.detail ? `\n\n${payload.detail}` : "";
+      throw new Error((payload.error || `Request failed (${response.status})`) + detail);
     }
 
     const records = payload.records ?? [];

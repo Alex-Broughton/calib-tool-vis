@@ -72,10 +72,29 @@ https://<cluster-host>/~<username>/calib-tool-vis/
 
 ### CGI setup notes
 
-- `calib_api.py` must be executable (`chmod 755`).
-- The CGI script imports `calibtool.py` from the parent of `cgi-bin/`; `deploy.sh` also copies it into the web directory for reference.
-- If CGI fails with import errors, ensure your web server runs CGI with LSST available. You may need a wrapper that sources `loadLSST.bash` before invoking Python. Example wrapper at `cgi-bin/calib_api_wrapper.sh`.
-- Repository paths are restricted to prefixes under `/sdf/group/rubin/repo/` for safety.
+- The API entry point is **`calib_api.cgi`** (a bash wrapper that sources `loadLSST.bash` then runs Python). Many web servers only execute `.cgi` files, not `.py`.
+- Both files must be executable: `chmod 755 ~/public_html/cgi-bin/calib_api.cgi ~/public_html/cgi-bin/calib_api.py`
+- `calibtool.py` must be at `~/public_html/calib-tool-vis/calibtool.py`
+
+### Troubleshooting
+
+**"API returned HTML instead of JSON"** — the browser hit an HTML error page (404/500), not the CGI script.
+
+1. Re-run `./deploy.sh` on the cluster.
+2. Test the API directly:
+   ```bash
+   curl "https://$(hostname -f)/~${USER}/cgi-bin/calib_api.cgi?ping=1"
+   ```
+   Expected: `{"ok": true}`. If you get HTML, CGI is not set up correctly.
+3. Confirm files exist and are executable:
+   ```bash
+   ls -l ~/public_html/cgi-bin/calib_api.*
+   ```
+4. If `ping` works but queries fail, the error JSON will include a Python traceback (LSST/Butler issue).
+5. If your CGI URL differs, set it in `index.html`:
+   ```html
+   <meta name="calib-api-url" content="/~abrought/cgi-bin/calib_api.cgi">
+   ```
 
 ### Manual layout
 
